@@ -1,8 +1,10 @@
-# SKaiNET skills marketplace
+# skainet-coding-skills
 
-A [Claude Code](https://docs.claude.com/en/docs/claude-code) plugin marketplace hosting two skill bundles for working with [SKaiNET](https://github.com/SKaiNET-developers/SKaiNET) — the Kotlin Multiplatform on-device ML/AI framework.
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
-The two plugins are designed to be installed together; descriptions disambiguate via path heuristics so the right one fires for a given prompt.
+Official [Claude Code](https://docs.claude.com/en/docs/claude-code) plugin marketplace for working with [SKaiNET](https://github.com/SKaiNET-developers/SKaiNET) — the Kotlin Multiplatform on-device ML/AI framework. Maintained under the [SKaiNET-developers](https://github.com/SKaiNET-developers) organization.
+
+The marketplace hosts two side-by-side skill bundles. They're designed to be installed together; per-skill descriptions disambiguate via path heuristics so exactly one fires per prompt.
 
 ## Plugins
 
@@ -34,15 +36,23 @@ For developers **using SKaiNET as a library** in their own Kotlin / Java / Andro
 
 ## Installation
 
-Clone this repository and point Claude Code at the marketplace:
+In any Claude Code session:
 
-```sh
-git clone https://github.com/<your-fork>/skainet-skills.git ~/projects/SKills
+```text
+/plugin marketplace add SKaiNET-developers/skainet-coding-skills
+/plugin install skainet-contributor-skills
+/plugin install skainet-consumer-skills
 ```
 
-Then in any Claude Code session run `/plugin marketplace add ~/projects/SKills`, followed by `/plugin install skainet-contributor-skills` and/or `/plugin install skainet-consumer-skills`.
+Or clone locally and point at the working tree:
 
-## Layout
+```sh
+git clone https://github.com/SKaiNET-developers/skainet-coding-skills.git
+# then in Claude Code:
+/plugin marketplace add /path/to/skainet-coding-skills
+```
+
+## Repository layout
 
 ```
 .
@@ -74,20 +84,21 @@ Each skill directory contains a `SKILL.md` (frontmatter + workflow + canonical e
 
 ## Conventions
 
-- Every code example in a SKILL.md ends with `// from: <path>:<line-range>` so a citation check can verify it stays in sync with SKaiNET source as the framework evolves.
+- Every code example in a SKILL.md ends with `// from: <path>:<line-range>` so the citation check (CI on every PR) verifies it stays in sync with SKaiNET source as the framework evolves.
 - Descriptions explicitly say when each skill should NOT fire, to prevent trigger collisions across the two plugins.
-- Constraint skills (`kotlin`, `gradle-multimodule`, `kmp`, `skainet-java-interop`, `skainet-testing`, `skainet-consumer-setup`, `skainet-android-integration`, `skainet-java-consumer`, `skainet-model-loading`, `skainet-inference`) carry numbered hard rules; the two pure-DSL skills (`skainet-data-dsl`, `skainet-nn-dsl`) lead with a cheatsheet instead.
+- Constraint skills carry numbered hard rules; the two pure-DSL skills (`skainet-data-dsl`, `skainet-nn-dsl`) lead with a cheatsheet instead.
 
-## SKaiNET
+## Contributing
 
-SKaiNET itself lives at <https://github.com/SKaiNET-developers/SKaiNET>. Clone it as a sibling directory if you want the citations in skill examples to resolve locally:
+See [CONTRIBUTING.md](CONTRIBUTING.md) for skill authoring, citation rules, and the eval scenario format.
 
-```sh
-git clone https://github.com/SKaiNET-developers/SKaiNET.git
-```
+## Related
 
-The clone is intentionally NOT tracked in this repository (see `.gitignore`).
+- [SKaiNET](https://github.com/SKaiNET-developers/SKaiNET) — the framework this marketplace serves.
+- [SKaiNET website](https://skainet.sk/)
+- [DeepWiki for SKaiNET](https://deepwiki.com/sk-ai-net/SKaiNET)
+- [Claude Code plugins](https://docs.claude.com/en/docs/claude-code/plugins) — how the marketplace and skills format work.
 
 ## License
 
-Apache-2.0 — see individual `plugin.json` files.
+MIT — see [LICENSE](LICENSE). Matches the upstream [SKaiNET](https://github.com/SKaiNET-developers/SKaiNET) license.

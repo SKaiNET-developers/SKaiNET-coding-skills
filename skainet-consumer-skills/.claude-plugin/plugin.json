@@ -3,11 +3,12 @@
   "version": "0.1.0",
   "description": "Skills for using SKaiNET as a library in your own Kotlin Multiplatform / JVM / Android / Java app. Covers BOM-based dependency setup, the data and neural-network DSLs, model loading (GGUF / ONNX / SafeTensors), running inference, Android integration, and pure-Java consumers calling the sk.ainet.java facade. Contributor-side skills (working inside the SKaiNET repo itself) live in the sibling skainet-contributor-skills plugin.",
   "author": {
-    "name": "SKaiNET community"
+    "name": "SKaiNET-developers",
+    "url": "https://github.com/SKaiNET-developers"
   },
-  "homepage": "https://skainet.sk/",
-  "repository": "https://github.com/SKaiNET-developers/SKaiNET",
-  "license": "Apache-2.0",
+  "homepage": "https://github.com/SKaiNET-developers/skainet-coding-skills",
+  "repository": "https://github.com/SKaiNET-developers/skainet-coding-skills",
+  "license": "MIT",
   "keywords": [
     "skainet",
     "consumer",

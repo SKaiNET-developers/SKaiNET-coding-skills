@@ -1,0 +1,32 @@
+name: verify-citations
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out skainet-coding-skills
+        uses: actions/checkout@v4
+        with:
+          path: skainet-coding-skills
+
+      - name: Check out SKaiNET (sibling)
+        uses: actions/checkout@v4
+        with:
+          repository: SKaiNET-developers/SKaiNET
+          path: SKaiNET
+          ref: main
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Run citation check
+        working-directory: skainet-coding-skills
+        run: python3 tools/verify-citations.py --skainet-root ../SKaiNET
