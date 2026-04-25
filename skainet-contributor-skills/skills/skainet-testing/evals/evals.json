@@ -1,0 +1,70 @@
+{
+  "$schema": "https://json.schemastore.org/skainet-skill-evals-v1.json",
+  "skill": "skainet-testing",
+  "scenarios": [
+    {
+      "id": "matmul-kotest-standard-tolerance",
+      "prompt": "Add a Kotest StringSpec test under skainet-lang-core/src/jvmTest/kotlin asserting that 2x3 @ 3x2 matmul of FP32 tensors equals the expected 2x2 result within STANDARD tolerance.",
+      "must_contain": [
+        "import io.kotest.core.spec.style.StringSpec",
+        "import sk.ainet.test.groundtruth.TensorAssertions",
+        "import sk.ainet.test.groundtruth.ToleranceConfig",
+        "TensorAssertions.assertTensorClose",
+        "ToleranceConfig.STANDARD"
+      ],
+      "must_not_contain": [
+        "kotlin.test.assertEquals",
+        "1e-5f",
+        "1e-6f",
+        "ToleranceConfig.STRICT",
+        "ToleranceConfig.RELAXED"
+      ],
+      "must_not_contain_reason": "matmul accumulates kernel products and lives in the STANDARD bucket. STRICT is too tight; literal epsilons bypass the tolerance policy."
+    },
+    {
+      "id": "softmax-relaxed-tolerance",
+      "prompt": "Write a multiplatform commonTest verifying softmax over a 1x4 FP32 input sums to 1.",
+      "must_contain": [
+        "import kotlin.test.Test",
+        "TensorAssertions",
+        "ToleranceConfig.RELAXED"
+      ],
+      "must_not_contain": [
+        "io.kotest.core",
+        "ToleranceConfig.STANDARD",
+        "ToleranceConfig.STRICT"
+      ],
+      "must_not_contain_reason": "Kotest cannot run in commonTest; softmax is a transcendental and must use RELAXED."
+    },
+    {
+      "id": "java-mirror-existing-pattern",
+      "prompt": "Add a JUnit 5 test in skainet-test-java that verifies TensorJavaOps.relu maps {-2, -1, 0, 3} to {0, 0, 0, 3}.",
+      "must_contain": [
+        "package sk.ainet.java",
+        "import org.junit.jupiter.api.Test",
+        "SKaiNET.tensor",
+        "TensorJavaOps.relu",
+        "assertArrayEquals"
+      ],
+      "must_not_contain": [
+        "TensorAssertions",
+        "ToleranceConfig"
+      ],
+      "must_not_contain_reason": "skainet-test-java is the Java consumer surface and intentionally does NOT depend on skainet-test-groundtruth — it uses raw JUnit assertions to prove parity for Java users."
+    },
+    {
+      "id": "anti-pattern-bare-epsilon",
+      "prompt": "Refactor the test below to comply with the project test policy:\n```kotlin\n@Test\nfun `add 2x2 tensors`() {\n    val sum = a.ops.add(a, b)\n    assertEquals(11f, sum.data[0,0] as Float, 1e-5f)\n    assertEquals(22f, sum.data[0,1] as Float, 1e-5f)\n}\n```",
+      "must_contain": [
+        "TensorAssertions",
+        "ToleranceConfig.STRICT"
+      ],
+      "must_not_contain": [
+        "1e-5f",
+        "1e-6f",
+        "kotlin.test.assertEquals"
+      ],
+      "must_not_contain_reason": "add is a STRICT-tolerance operation; raw epsilons and kotlin.test.assertEquals on tensor data are forbidden by hard rules 1-3."
+    }
+  ]
+}

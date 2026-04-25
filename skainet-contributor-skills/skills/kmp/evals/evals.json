@@ -1,0 +1,57 @@
+{
+  "$schema": "https://json.schemastore.org/skainet-skill-evals-v1.json",
+  "skill": "kmp",
+  "scenarios": [
+    {
+      "id": "add-ios-target-to-jvm-only-module",
+      "prompt": "Add iosArm64 and iosSimulatorArm64 targets to skainet-data:skainet-data-simple, which is currently JVM-only. Show the build script change.",
+      "must_contain": [
+        "iosArm64()",
+        "iosSimulatorArm64()"
+      ],
+      "must_not_contain": [
+        "kotlin.srcDirs(\"src/iosArm64Main",
+        "actual fun"
+      ],
+      "must_not_contain_reason": "Adding the targets does not require touching commonMain; an `actual` is only needed if there's already an `expect` in commonMain."
+    },
+    {
+      "id": "expect-in-commonMain-actual-in-jvmMain",
+      "prompt": "Implement a multiplatform `loadBytesFromFile(path: String): ByteArray` for skainet-io. Provide the file layout and the expect/actual declarations.",
+      "must_contain": [
+        "commonMain",
+        "expect fun loadBytesFromFile",
+        "jvmMain",
+        "actual fun loadBytesFromFile"
+      ],
+      "must_not_contain": [
+        "expect fun loadBytesFromFile(path: String): ByteArray = ",
+        "// jvmMain/.../FileLoader.kt\npublic expect"
+      ],
+      "must_not_contain_reason": "expect cannot have a body and lives only in commonMain."
+    },
+    {
+      "id": "no-kotest-in-commonTest",
+      "prompt": "Add a multiplatform commonTest verifying tensor shape equality. Use the appropriate test framework.",
+      "must_contain": [
+        "commonTest",
+        "kotlin.test"
+      ],
+      "must_not_contain": [
+        "io.kotest.core",
+        "kotest-runner-junit5"
+      ],
+      "must_not_contain_reason": "Hard rule 4: Kotest is JVM-only and will not compile against native targets from commonTest."
+    },
+    {
+      "id": "ksp-wiring-when-needed",
+      "prompt": "I want skainet-io:skainet-io-newformat to consume the skainet-lang-ksp-processor. What's the build-script setup?",
+      "must_contain": [
+        "kotlin.srcDir(\"build/generated/ksp/metadata/commonMain/kotlin\")",
+        "add(\"kspCommonMainMetadata\", project(\":skainet-lang:skainet-lang-ksp-processor\"))",
+        "kspCommonMainKotlinMetadata"
+      ],
+      "must_not_contain_reason": null
+    }
+  ]
+}

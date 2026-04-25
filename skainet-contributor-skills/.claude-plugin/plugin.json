@@ -1,0 +1,21 @@
+{
+  "name": "skainet-contributor-skills",
+  "version": "0.1.0",
+  "description": "Skills for contributing TO the SKaiNET framework — Kotlin idioms enforced by the project, the multi-module Gradle layout with version catalog, KMP source-set rules, the Java-interop facade convention, and the common in-repo test strategy. Use when editing files inside the SKaiNET repo. Consumer-side skills (using SKaiNET in your own app) live in the sibling skainet-consumer-skills plugin.",
+  "author": {
+    "name": "SKaiNET community"
+  },
+  "homepage": "https://skainet.sk/",
+  "repository": "https://github.com/SKaiNET-developers/SKaiNET",
+  "license": "Apache-2.0",
+  "keywords": [
+    "skainet",
+    "contributor",
+    "kotlin",
+    "kotlin-multiplatform",
+    "kmp",
+    "gradle",
+    "java-interop",
+    "testing"
+  ]
+}

@@ -1,0 +1,64 @@
+{
+  "$schema": "https://json.schemastore.org/skainet-skill-evals-v1.json",
+  "skill": "skainet-android-integration",
+  "scenarios": [
+    {
+      "id": "load-gguf-from-assets",
+      "prompt": "I have a model.gguf in my Android app's src/main/assets/. Show me how to load it without crashing on first run.",
+      "must_contain": [
+        "context.assets.open(",
+        "context.cacheDir",
+        "GGUFModelReader",
+        "noCompress"
+      ],
+      "must_not_contain": [
+        "File(\"file:///android_asset/model.gguf\")",
+        "File(\"/android_asset/"
+      ],
+      "must_not_contain_reason": "There is no real path inside an APK; assets must be opened via AssetManager and copied to cacheDir for random-access loaders."
+    },
+    {
+      "id": "viewmodel-inference-correct-dispatcher",
+      "prompt": "Wire model.forward into a Compose UI without freezing on rotation or click.",
+      "must_contain": [
+        "viewModelScope.launch",
+        "withContext(Dispatchers.Default)",
+        "model.forward(",
+        "MutableStateFlow"
+      ],
+      "must_not_contain": [
+        "Dispatchers.IO",
+        "Dispatchers.Main",
+        "lifecycleScope.launch"
+      ],
+      "must_not_contain_reason": "ViewModel uses viewModelScope (survives config change); IO is wrong for CPU-bound forward; Main is the UI thread; lifecycleScope is owned by Activity, not the ViewModel."
+    },
+    {
+      "id": "abi-filters-prod-debug",
+      "prompt": "Configure abiFilters for production. I want minimal APK size but supporting older 32-bit ARM is also acceptable.",
+      "must_contain": [
+        "abiFilters",
+        "arm64-v8a"
+      ],
+      "must_not_contain": [
+        "x86",
+        "x86_64"
+      ],
+      "must_not_contain_reason": "Production Android devices are ARM; x86 only matters for emulators and is not part of the production split."
+    },
+    {
+      "id": "trim-memory-drops-module",
+      "prompt": "My app is being killed by LMK after sitting in the background for an hour. The model is 2GB. What's the fix?",
+      "must_contain": [
+        "onTrimMemory",
+        "TRIM_MEMORY_BACKGROUND",
+        "module = null"
+      ],
+      "must_not_contain": [
+        "TRIM_MEMORY_RUNNING_MODERATE",
+        "System.gc()"
+      ],
+      "must_not_contain_reason": "RUNNING_MODERATE is too early; System.gc() doesn't release model memory because Module holds direct references."
+    }
+  ]
+}

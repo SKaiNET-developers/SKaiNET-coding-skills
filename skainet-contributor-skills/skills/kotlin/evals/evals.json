@@ -1,0 +1,59 @@
+{
+  "$schema": "https://json.schemastore.org/skainet-skill-evals-v1.json",
+  "skill": "kotlin",
+  "scenarios": [
+    {
+      "id": "explicit-api-on-new-top-level-fun",
+      "prompt": "Add a top-level helper `fun packShape(dims: IntArray): Long` to skainet-lang-core under sk.ainet.lang.tensor that bit-packs up to 4 dimensions into a Long.",
+      "must_contain": [
+        "package sk.ainet.lang.tensor",
+        "public fun packShape"
+      ],
+      "must_not_contain": [
+        "@JvmStatic",
+        "fun packShape(",
+        "private fun packShape"
+      ],
+      "must_not_contain_reason": "explicitApi() requires a visibility modifier; the test for absence of bare `fun packShape(` ensures `public` is present. @JvmStatic is reserved for the java-interop facade, not main Kotlin code."
+    },
+    {
+      "id": "sealed-hierarchy-not-enum-when-variants-carry-data",
+      "prompt": "Define a closed set of pooling variants where Max takes (kernelH, kernelW), Avg takes (kernelH, kernelW, includePad), and Global takes no parameters.",
+      "must_contain": [
+        "public sealed",
+        "data class Max",
+        "data class Avg",
+        "object Global"
+      ],
+      "must_not_contain": [
+        "enum class"
+      ],
+      "must_not_contain_reason": "Hard rule 5: variants carry data, so this must be sealed, not an enum."
+    },
+    {
+      "id": "value-class-for-typed-id",
+      "prompt": "Add a type-safe LayerId wrapper around a String so that two layers can't accidentally swap ids.",
+      "must_contain": [
+        "@JvmInline",
+        "public value class LayerId"
+      ],
+      "must_not_contain": [
+        "data class LayerId",
+        "typealias LayerId"
+      ],
+      "must_not_contain_reason": "data class allocates; typealias is not type-safe. value class fits hard rule 4 exactly."
+    },
+    {
+      "id": "no-java-getter-on-kotlin-class",
+      "prompt": "Add a `numFeatures` accessor to BatchNormalization. The user is reading the value from Kotlin code.",
+      "must_contain": [
+        "public val numFeatures"
+      ],
+      "must_not_contain": [
+        "fun getNumFeatures(",
+        "@get:JvmName"
+      ],
+      "must_not_contain_reason": "Kotlin code accesses Kotlin properties; Java compatibility belongs to the dedicated facade in sk.ainet.java."
+    }
+  ]
+}

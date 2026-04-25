@@ -1,0 +1,66 @@
+{
+  "$schema": "https://json.schemastore.org/skainet-skill-evals-v1.json",
+  "skill": "skainet-data-dsl",
+  "scenarios": [
+    {
+      "id": "build-28x28-fp32-zero-tensor",
+      "prompt": "Create a 28x28 FP32 tensor of zeros using the data DSL.",
+      "must_contain": [
+        "tensor<FP32, Float>",
+        "FP32::class",
+        "shape(28, 28)",
+        "zeros()"
+      ],
+      "must_not_contain": [
+        "FloatArray(28 * 28)",
+        "ctx.zeros(",
+        "tensor<FP32, Int>"
+      ],
+      "must_not_contain_reason": "User code goes through the DSL; raw arrays and direct ctx.zeros calls bypass it. FP32 pairs with Float, never Int."
+    },
+    {
+      "id": "imagenet-preprocessing-pipeline",
+      "prompt": "Build a preprocessing pipeline that takes a raw image tensor in [0,255] and produces a normalised tensor with ImageNet mean/std and a leading batch dim.",
+      "must_contain": [
+        "pipeline<Tensor<FP32, Float>>()",
+        ".rescale(ctx, 255f)",
+        ".normalize(ctx,",
+        ".unsqueeze(0)"
+      ],
+      "must_not_contain": [
+        "ops.divScalar",
+        "ops.subScalar",
+        ".rescale(255f)"
+      ],
+      "must_not_contain_reason": "Raw scalar ops chained by hand miss the pipeline composition; rescale/normalize signatures take the ExecutionContext as their first argument."
+    },
+    {
+      "id": "slice-first-10-rows-of-batch",
+      "prompt": "Given a [batch, channels, h, w] tensor, take the first 10 batches as a view.",
+      "must_contain": [
+        "sliceView",
+        "segment { range(0, 10) }",
+        "segment { all() }"
+      ],
+      "must_not_contain": [
+        "narrow(",
+        "tensor[0..9]"
+      ],
+      "must_not_contain_reason": "narrow does the same job for a single dimension, but the question asked for a view across multiple dimensions; sliceView with explicit segments is the canonical idiom and exercises the multi-dim slicing API."
+    },
+    {
+      "id": "deterministic-init-with-seed",
+      "prompt": "Initialise a 4x4 FP32 tensor with a normal(0, 0.02) distribution, reproducible across runs.",
+      "must_contain": [
+        "shape(4, 4)",
+        "randn(",
+        "Random("
+      ],
+      "must_not_contain": [
+        "Random.Default",
+        "uniform("
+      ],
+      "must_not_contain_reason": "Reproducible tests pass a seeded Random; Random.Default is non-deterministic. The user asked for normal, not uniform."
+    }
+  ]
+}

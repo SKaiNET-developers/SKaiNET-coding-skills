@@ -1,0 +1,73 @@
+{
+  "$schema": "https://json.schemastore.org/skainet-skill-evals-v1.json",
+  "skill": "skainet-java-consumer",
+  "scenarios": [
+    {
+      "id": "minimal-java-pom",
+      "prompt": "I have a Spring Boot project (Maven, Java 21). Add SKaiNET so I can build a tiny tensor and run relu.",
+      "must_contain": [
+        "<groupId>sk.ainet</groupId>",
+        "<artifactId>skainet-bom</artifactId>",
+        "<scope>import</scope>",
+        "<groupId>sk.ainet.core</groupId>",
+        "<artifactId>skainet-lang-core</artifactId>",
+        "<artifactId>skainet-backend-cpu</artifactId>"
+      ],
+      "must_not_contain": [
+        "<version>0.20.0-SNAPSHOT</version>\n      <scope>compile</scope>",
+        "<groupId>sk.ainet</groupId>\n      <artifactId>skainet-lang-core</artifactId>"
+      ],
+      "must_not_contain_reason": "BOM-managed artifacts must omit <version>; libraries are sk.ainet.core, not sk.ainet."
+    },
+    {
+      "id": "basic-tensor-add-from-java",
+      "prompt": "Show idiomatic Java code that builds two 2x2 FP32 tensors and adds them.",
+      "must_contain": [
+        "ExecutionContext ctx = SKaiNET.context();",
+        "Tensor<?, ?>",
+        "SKaiNET.tensor(ctx, new int[]",
+        "DType.fp32()",
+        "TensorJavaOps.add("
+      ],
+      "must_not_contain": [
+        "Tensor<DType, Float>",
+        "FP32.class",
+        ".getOps().add("
+      ],
+      "must_not_contain_reason": "Java-side tensors are Tensor<?, ?>; DType passes via DType.fp32() not KClass; ops go through TensorJavaOps, never the .ops field."
+    },
+    {
+      "id": "softmax-default-overload",
+      "prompt": "Apply softmax to a tensor along the last dimension. Show the shortest working call.",
+      "must_contain": [
+        "TensorJavaOps.softmax("
+      ],
+      "must_not_contain": [
+        "TensorJavaOps.softmax(input, null)"
+      ],
+      "must_not_contain_reason": "@JvmOverloads exposes softmax(a) without dim — the default of -1 already means last dim; passing null is wrong type and unidiomatic."
+    },
+    {
+      "id": "tokenizer-from-gguf",
+      "prompt": "I loaded a GGUF model. Build a tokenizer from its metadata.",
+      "must_contain": [
+        "TokenizerFactory.fromGguf(",
+        "UnsupportedTokenizerException"
+      ],
+      "must_not_contain_reason": null
+    },
+    {
+      "id": "no-suspend-from-java",
+      "prompt": "I want to call ggufReader.loadTensor(\"name\") from a Spring service method. The Kotlin signature is `suspend fun loadTensor(name: String)`. How?",
+      "must_contain": [
+        "Kotlin",
+        "shim",
+        "CompletableFuture"
+      ],
+      "must_not_contain": [
+        "ggufReader.loadTensor(\"name\", null)"
+      ],
+      "must_not_contain_reason": "Passing `null` as the Continuation isn't a real solution — the answer is a Kotlin shim that exposes CompletableFuture."
+    }
+  ]
+}

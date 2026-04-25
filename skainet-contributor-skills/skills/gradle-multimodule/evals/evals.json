@@ -1,0 +1,62 @@
+{
+  "$schema": "https://json.schemastore.org/skainet-skill-evals-v1.json",
+  "skill": "gradle-multimodule",
+  "scenarios": [
+    {
+      "id": "add-module-skainet-io-newformat",
+      "prompt": "Add a new published module `skainet-io:skainet-io-newformat` that depends on `skainet-io:skainet-io-core` and uses kotlinx-io for stream handling. Provide the full set of edits.",
+      "must_contain": [
+        "include(\"skainet-io:skainet-io-newformat\")",
+        "alias(libs.plugins.kotlinMultiplatform)",
+        "alias(libs.plugins.vanniktech.mavenPublish)",
+        "alias(libs.plugins.binary.compatibility.validator)",
+        "id(\"sk.ainet.dokka\")",
+        "implementation(libs.kotlinx.io.core)",
+        "api(project(\":skainet-io:skainet-io-core\"))"
+      ],
+      "must_not_contain": [
+        "version = \"3.4.3\"",
+        "version = \"2.3.21\"",
+        "implementation(\"org.jetbrains.kotlinx:kotlinx-io-core:0.9.0\")",
+        "id(\"org.jetbrains.dokka\") version"
+      ],
+      "must_not_contain_reason": "Hard rule 1: every coordinate routes through the catalog; hard rule 4: Dokka is configured by sk.ainet.dokka, not applied directly."
+    },
+    {
+      "id": "add-test-deps-via-catalog",
+      "prompt": "Add Kotest as a JVM-test dependency to `skainet-data:skainet-data-transform`.",
+      "must_contain": [
+        "jvmTest.dependencies",
+        "implementation(libs.kotest.runner.junit5)",
+        "implementation(libs.kotest.assertions.core)"
+      ],
+      "must_not_contain": [
+        "io.kotest:kotest-runner-junit5:",
+        "version.ref"
+      ],
+      "must_not_contain_reason": "Catalog entries already encode versions; module scripts only refer to aliases."
+    },
+    {
+      "id": "register-published-module-in-bom",
+      "prompt": "I just added skainet-io:skainet-io-newformat. What else changes for it to be a properly published artifact?",
+      "must_contain": [
+        "skainet-bom",
+        "binary-compatibility-validator",
+        "apiDump",
+        "vanniktech"
+      ],
+      "must_not_contain_reason": null
+    },
+    {
+      "id": "wrong-jvm-target-rejected",
+      "prompt": "Configure the Android target with JVM 17.",
+      "must_contain": [
+        "JvmTarget.JVM_11"
+      ],
+      "must_not_contain": [
+        "JvmTarget.JVM_17"
+      ],
+      "must_not_contain_reason": "Hard rule 6: JVM target is fixed at 11 across the project."
+    }
+  ]
+}

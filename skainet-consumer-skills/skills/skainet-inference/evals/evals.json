@@ -1,0 +1,71 @@
+{
+  "$schema": "https://json.schemastore.org/skainet-skill-evals-v1.json",
+  "skill": "skainet-inference",
+  "scenarios": [
+    {
+      "id": "minimal-forward-pass",
+      "prompt": "Run inference on a 1x784 FP32 input through a model that returns logits over 10 classes. Show the full setup.",
+      "must_contain": [
+        "DirectCpuExecutionContext.create()",
+        "model.forward(",
+        "tensor<FP32, Float>"
+      ],
+      "must_not_contain": [
+        "Phase.TRAIN",
+        "DirectCpuExecutionContext.create(phase = Phase.TRAIN)"
+      ],
+      "must_not_contain_reason": "Inference uses Phase.EVAL (the default); TRAIN activates dropout and ruins predictions."
+    },
+    {
+      "id": "no-context-per-call",
+      "prompt": "I'm running predictions in a loop over 1000 inputs. The latency is bad. What am I doing wrong?",
+      "must_contain": [
+        "ExecutionContext",
+        "outside",
+        "DirectCpuExecutionContext.create()"
+      ],
+      "must_not_contain_reason": "The answer is: hoist the ExecutionContext out of the loop — creating one per call is the latency hit."
+    },
+    {
+      "id": "android-dispatcher",
+      "prompt": "Call model.forward from an Android click handler without freezing the UI. Show the snippet.",
+      "must_contain": [
+        "lifecycleScope.launch",
+        "withContext(Dispatchers.Default)",
+        "model.forward("
+      ],
+      "must_not_contain": [
+        "runBlocking",
+        "Dispatchers.Main",
+        "Dispatchers.IO"
+      ],
+      "must_not_contain_reason": "runBlocking on UI thread blocks; Main is what we're trying to avoid; IO is wrong because the work is CPU-bound, not IO-bound."
+    },
+    {
+      "id": "batched-forward",
+      "prompt": "I have a List<Tensor> of 64 inputs to classify. Show the most efficient way to run them.",
+      "must_contain": [
+        "shape(64,",
+        "model.forward("
+      ],
+      "must_not_contain": [
+        "inputs.map { model.forward(",
+        ".forEach { x -> model.forward("
+      ],
+      "must_not_contain_reason": "Per-sample forward in a loop loses CPU cache reuse; the right idiom is one forward with a leading batch dimension."
+    },
+    {
+      "id": "turboquant-kv-cache",
+      "prompt": "Compress my LLM's KV cache by ~8x with minimal quality loss. Show the encoding configuration.",
+      "must_contain": [
+        "TurboQuantPolar(bitsPerElement = 4",
+        "blockSize = 128"
+      ],
+      "must_not_contain": [
+        "TurboQuantPolar(bitsPerElement = 2",
+        "TurboQuantPolar(bitsPerElement = 8"
+      ],
+      "must_not_contain_reason": "8x compression with minimal quality loss is the 4-bit sweet spot; 2 bits is too aggressive for 'minimal loss', 8 bits is only ~4x compression."
+    }
+  ]
+}

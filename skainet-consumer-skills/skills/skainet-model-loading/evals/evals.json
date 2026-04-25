@@ -1,0 +1,62 @@
+{
+  "$schema": "https://json.schemastore.org/skainet-skill-evals-v1.json",
+  "skill": "skainet-model-loading",
+  "scenarios": [
+    {
+      "id": "load-safetensors-fp32",
+      "prompt": "Load weights from a model.safetensors file into an existing Module. The model is FP32. Show the loader call and how to bind tensors.",
+      "must_contain": [
+        "SafeTensorsParametersLoader",
+        "sourceProvider",
+        ".load(ctx, FP32::class)",
+        "onTensorLoaded"
+      ],
+      "must_not_contain": [
+        "loader.load(\"model.safetensors\")",
+        "GGUFModelReader",
+        "OnnxLoader"
+      ],
+      "must_not_contain_reason": "SafeTensors loader takes a source factory, not a path string; the question asks for SafeTensors specifically."
+    },
+    {
+      "id": "stream-gguf-llm-tensor",
+      "prompt": "I'm running a 7B LLM from a GGUF file on a 16GB machine. How do I avoid loading all weights at once?",
+      "must_contain": [
+        "GGUFModelReader",
+        "loadTensor(",
+        "RandomAccessSource"
+      ],
+      "must_not_contain": [
+        "loadAll",
+        "readBytes()"
+      ],
+      "must_not_contain_reason": "GGUF's value proposition is per-tensor streaming via loadTensor(name); reading the whole file as ByteArray defeats it."
+    },
+    {
+      "id": "onnx-model-source",
+      "prompt": "Load a small classifier model from classifier.onnx for inspection. Just decode the proto.",
+      "must_contain": [
+        "OnnxLoader.fromModelSource",
+        ".load()"
+      ],
+      "must_not_contain": [
+        "OnnxLoader.fromSource(decode = ",
+        "OnnxLoader<MyCustomMessage>"
+      ],
+      "must_not_contain_reason": "fromModelSource is the convenience entry point that decodes onnx.ModelProto; the generic fromSource is for custom protobuf messages."
+    },
+    {
+      "id": "suspend-loader-from-android-viewmodel",
+      "prompt": "Call SafeTensorsParametersLoader from an Android ViewModel without freezing the UI thread.",
+      "must_contain": [
+        "viewModelScope.launch",
+        "loader.load("
+      ],
+      "must_not_contain": [
+        "runBlocking",
+        "GlobalScope"
+      ],
+      "must_not_contain_reason": "Android ViewModels use viewModelScope; runBlocking on the main thread freezes the UI; GlobalScope leaks the load past the ViewModel lifetime."
+    }
+  ]
+}

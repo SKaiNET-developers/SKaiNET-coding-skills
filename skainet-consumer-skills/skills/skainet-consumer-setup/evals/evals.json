@@ -1,0 +1,73 @@
+{
+  "$schema": "https://json.schemastore.org/skainet-skill-evals-v1.json",
+  "skill": "skainet-consumer-setup",
+  "scenarios": [
+    {
+      "id": "minimal-jvm-app-bom",
+      "prompt": "I have a JVM-only Spring Boot project. Show me the minimal Gradle change to add SKaiNET so I can build a small MLP and run inference.",
+      "must_contain": [
+        "platform(\"sk.ainet:skainet-bom:",
+        "sk.ainet.core:skainet-lang-core",
+        "sk.ainet.core:skainet-backend-cpu"
+      ],
+      "must_not_contain": [
+        "sk.ainet.core:skainet-bom",
+        "sk.ainet:skainet-lang-core",
+        "implementation(\"sk.ainet.core:skainet-lang-core:0."
+      ],
+      "must_not_contain_reason": "Hard rule 2: BOM is sk.ainet, libraries are sk.ainet.core; hard rule 1: never hard-pin per-artifact versions when the BOM is in use."
+    },
+    {
+      "id": "load-gguf-add-deps",
+      "prompt": "I want to load a Llama-style GGUF model. What do I add on top of the minimal setup?",
+      "must_contain": [
+        "sk.ainet.core:skainet-io-core",
+        "sk.ainet.core:skainet-io-gguf"
+      ],
+      "must_not_contain": [
+        "sk.ainet.core:skainet-io-onnx",
+        "sk.ainet.core:skainet-io-safetensors"
+      ],
+      "must_not_contain_reason": "GGUF has a dedicated loader; pulling ONNX or SafeTensors only adds transitive weight."
+    },
+    {
+      "id": "kmp-consumer-source-set-deps",
+      "prompt": "Add SKaiNET to a KMP module that targets jvm() and androidTarget(). The DSL should be usable from commonMain.",
+      "must_contain": [
+        "commonMain.dependencies",
+        "platform(libs.skainet.bom)",
+        "libs.skainet.lang.core",
+        "jvmMain.dependencies",
+        "libs.skainet.backend.cpu",
+        "androidMain.dependencies"
+      ],
+      "must_not_contain_reason": null
+    },
+    {
+      "id": "snapshot-repo-when-snapshot-version",
+      "prompt": "I want the latest 0.20.0-SNAPSHOT. Configure my repositories.",
+      "must_contain": [
+        "central.sonatype.com/repository/maven-snapshots",
+        "includeGroupByRegex"
+      ],
+      "must_not_contain": [
+        "mavenLocal()"
+      ],
+      "must_not_contain_reason": "Snapshot artifacts come from the public snapshot repo, not mavenLocal."
+    },
+    {
+      "id": "version-catalog-style-required",
+      "prompt": "My consumer project already uses gradle/libs.versions.toml. Show me the version-catalog entries for SKaiNET.",
+      "must_contain": [
+        "skainet-bom = { module = \"sk.ainet:skainet-bom\"",
+        "skainet-lang-core = { module = \"sk.ainet.core:skainet-lang-core\"",
+        "skainet-backend-cpu = { module = \"sk.ainet.core:skainet-backend-cpu\""
+      ],
+      "must_not_contain": [
+        "version.ref = \"skainet\"\n} \nskainet-lang-core",
+        "version = \"0."
+      ],
+      "must_not_contain_reason": "Per-library `version.ref` is fine on the BOM line itself, but library entries (skainet-lang-core etc.) should NOT carry a version because the BOM constrains them."
+    }
+  ]
+}

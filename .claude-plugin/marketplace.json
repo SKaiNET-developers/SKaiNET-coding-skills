@@ -1,0 +1,35 @@
+{
+  "name": "skainet-skills-marketplace",
+  "owner": {
+    "name": "SKaiNET community"
+  },
+  "plugins": [
+    {
+      "name": "skainet-contributor-skills",
+      "source": "./skainet-contributor-skills",
+      "description": "Skills for contributing TO SKaiNET. Activate when editing files inside the SKaiNET repository: Kotlin idioms, multi-module Gradle + version catalog, KMP source-sets, Java-interop facade convention, in-repo test strategy.",
+      "version": "0.1.0",
+      "tags": [
+        "skainet",
+        "contributor",
+        "kotlin",
+        "gradle",
+        "kmp"
+      ]
+    },
+    {
+      "name": "skainet-consumer-skills",
+      "source": "./skainet-consumer-skills",
+      "description": "Skills for USING SKaiNET in your own app. Activate when adding SKaiNET to a consumer Gradle project, building tensors and networks via the public DSL, loading models, running inference, integrating on Android, or consuming from pure Java.",
+      "version": "0.1.0",
+      "tags": [
+        "skainet",
+        "consumer",
+        "library",
+        "inference",
+        "android",
+        "java"
+      ]
+    }
+  ]
+}

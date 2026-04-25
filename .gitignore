@@ -1,0 +1,25 @@
+# Upstream SKaiNET clone — referenced by path from skill citations,
+# but managed as a separate repository. Not tracked here.
+SKaiNET/
+
+# IDE
+.idea/
+.vscode/
+*.iml
+*.ipr
+*.iws
+
+# OS noise
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Build artifacts (in case Gradle is ever run in this tree)
+build/
+.gradle/
+out/
+
+# Local plan / scratch files
+plans/
+*.swp
+*.swo

@@ -1,0 +1,61 @@
+{
+  "$schema": "https://json.schemastore.org/skainet-skill-evals-v1.json",
+  "skill": "skainet-java-interop",
+  "scenarios": [
+    {
+      "id": "expose-tensor-relu-to-java",
+      "prompt": "Add a Java-callable `relu(Tensor)` method to TensorJavaOps. Show the full minimal change.",
+      "must_contain": [
+        "@file:JvmName(\"TensorJavaOps\")",
+        "package sk.ainet.java",
+        "public object TensorJavaOps",
+        "@JvmStatic",
+        "public fun relu(a: Tensor<*, *>): Tensor<*, *>",
+        "@Suppress(\"UNCHECKED_CAST\")"
+      ],
+      "must_not_contain": [
+        "INSTANCE.relu",
+        "Tensor<DType, Any?>): Tensor<DType, Any?>",
+        "fun relu(a: Tensor<*, *>)\n"
+      ],
+      "must_not_contain_reason": "@JvmStatic must precede the function so Java does not need INSTANCE; the boundary uses Tensor<*, *> in the signature, not the internal generic form."
+    },
+    {
+      "id": "factory-with-default-dtype-needs-jvmoverloads",
+      "prompt": "Add a `randn(ctx, shape, dtype = FP32)` factory to SKaiNET so Java callers can omit the dtype.",
+      "must_contain": [
+        "@JvmStatic",
+        "@JvmOverloads",
+        "public fun randn(ctx: ExecutionContext, shape: IntArray, dtype: DType = FP32)"
+      ],
+      "must_not_contain": [
+        "@JvmStatic\n    public fun randn(ctx: ExecutionContext, shape: IntArray, dtype: DType = FP32)"
+      ],
+      "must_not_contain_reason": "@JvmOverloads is required for Java to see the version that omits dtype; without it Java callers must always pass DType."
+    },
+    {
+      "id": "no-kclass-across-boundary",
+      "prompt": "Expose a `tensor(ctx, shape, dtype, data)` factory that creates an FP32 tensor from a float array.",
+      "must_contain": [
+        "dtype: DType",
+        "data: FloatArray"
+      ],
+      "must_not_contain": [
+        "dtype: KClass<",
+        "data: List<Float>"
+      ],
+      "must_not_contain_reason": "Java cannot easily produce a KClass; primitive arrays beat boxed List<Float> for performance and ergonomics."
+    },
+    {
+      "id": "java-test-mirrors-new-method",
+      "prompt": "I just added TensorJavaOps.tril(a, k). Where else does the change need to land for Java consumers to be confident it works?",
+      "must_contain": [
+        "skainet-test-java",
+        "TensorJavaOpsTest.java",
+        "@Test",
+        "TensorJavaOps.tril("
+      ],
+      "must_not_contain_reason": null
+    }
+  ]
+}

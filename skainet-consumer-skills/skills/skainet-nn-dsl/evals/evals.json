@@ -1,0 +1,71 @@
+{
+  "$schema": "https://json.schemastore.org/skainet-skill-evals-v1.json",
+  "skill": "skainet-nn-dsl",
+  "scenarios": [
+    {
+      "id": "two-layer-mlp-mnist",
+      "prompt": "Build a 2-layer MLP for MNIST: 784 → 128 → 10 with ReLU and softmax output, FP32.",
+      "must_contain": [
+        "sequential<FP32, Float>",
+        "input(28 * 28)",
+        "dense(128)",
+        "activation",
+        "dense(10)",
+        "softmax"
+      ],
+      "must_not_contain": [
+        "linear(",
+        "relu()",
+        "dag {"
+      ],
+      "must_not_contain_reason": "Sequential, not DAG, for a linear stack. The DSL uses `dense`, not `linear`. There is no `relu()` layer — use `activation { it.relu() }`."
+    },
+    {
+      "id": "small-cnn-classifier",
+      "prompt": "Build a CNN for 1x28x28 input: conv2d(16, 3x3) → relu → maxPool 2x2 → flatten → dense(64) → relu → dense(10).",
+      "must_contain": [
+        "sequential<FP32, Float>",
+        "input(intArrayOf(1, 28, 28))",
+        "conv2d(outChannels = 16, kernelSize = 3 to 3",
+        "maxPool2d(kernelSize = 2 to 2",
+        "flatten(",
+        "dense(64)",
+        "dense(10)"
+      ],
+      "must_not_contain": [
+        "input(28 * 28)",
+        "conv2d(16, 3, 3)"
+      ],
+      "must_not_contain_reason": "input must declare per-sample shape via IntArray for downstream conv layers; conv2d takes Pair, not separate ints."
+    },
+    {
+      "id": "residual-block-requires-dag",
+      "prompt": "Build a residual block: x -> matmul(W1) -> relu -> matmul(W2) -> add(x). FP32 weights of shape 64x64 init normal(0, 0.02).",
+      "must_contain": [
+        "dag {",
+        "input<FP32>",
+        "parameter<FP32, Float>",
+        "matmul(",
+        "relu(",
+        "output("
+      ],
+      "must_not_contain": [
+        "sequential<"
+      ],
+      "must_not_contain_reason": "Skip connections cannot be expressed in sequential; the residual `add(x, ...)` requires arbitrary wiring."
+    },
+    {
+      "id": "dagModule-reusable-block",
+      "prompt": "Define a reusable encoder block (input -> dense(128) -> relu -> dense(64)) and instantiate it twice inside a dag.",
+      "must_contain": [
+        "dagModule { inputs ->",
+        "module(",
+        "dag {"
+      ],
+      "must_not_contain": [
+        "fun encoderBlock(builder: DagBuilder)"
+      ],
+      "must_not_contain_reason": "dagModule is the canonical reusable-block mechanism; passing the builder by hand bypasses the DagModule API."
+    }
+  ]
+}
