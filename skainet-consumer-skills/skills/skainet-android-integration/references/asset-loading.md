@@ -28,15 +28,30 @@ private suspend fun copyAssetIfNeeded(context: Context, assetName: String): File
 
 Use `cacheDir` if the model can be re-downloaded; `filesDir` if losing it would brick the feature.
 
+Once the file exists on disk, open it by path:
+
+```kotlin
+// GGUF — mapped weights by default (page cache, not ART heap):
+val loader = AndroidGguf.loader(file.absolutePath)          // sk.ainet.io.gguf (androidMain)
+
+// SafeTensors — the cross-platform source factory:
+val stLoader = SafeTensorsParametersLoader(
+    sourceProvider = { openRandomAccessSource(file.absolutePath)!! }   // sk.ainet.io
+)
+```
+
+On Android, `openRandomAccessSource` is backed by `AndroidRandomAccessSource` (positional `FileChannel` reads — thread-safe, API 1+), so streaming loaders work without heap-loading the whole file.
+
 ## ONNX is sequential — `assets.open(...).asSource()` works
 
 ONNX is a single-pass parse. The `OnnxLoader.fromModelSource { ... }` lambda can return a `Source` backed directly by an asset stream:
 
 ```kotlin
 import kotlinx.io.asSource
+import kotlinx.io.buffered
 
 val loader = OnnxLoader.fromModelSource {
-    context.assets.open("model.onnx").asSource()
+    context.assets.open("model.onnx").asSource().buffered()
 }
 ```
 

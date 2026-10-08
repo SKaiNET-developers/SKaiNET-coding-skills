@@ -41,7 +41,7 @@
         "io.kotest.core",
         "kotest-runner-junit5"
       ],
-      "must_not_contain_reason": "Hard rule 4: Kotest is JVM-only and will not compile against native targets from commonTest."
+      "must_not_contain_reason": "Hard rule 4: Kotest will not compile against native targets from commonTest — and as of 0.57.0 library modules do not use Kotest at all (kotlin.test in commonTest and jvmTest; Kotest only in the skainet-apps CLI tests)."
     },
     {
       "id": "ksp-wiring-when-needed",

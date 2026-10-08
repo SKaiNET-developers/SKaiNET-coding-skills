@@ -10,10 +10,26 @@ public fun <T : DType, V> tensor(
     dtype: KClass<T>,
     content: TensorDefineDsl<T, V>.() -> Tensor<T, V>
 ): Tensor<T, V>
-// from: TensorDSL.kt:17-25
+// from: TensorDSL.kt:18-25
 ```
 
-`data<T, V>(ctx) { tensor { shape(...) { ... } } }` is the phase-aware variant defined in `sk.ainet.context` (separate import: `sk.ainet.context.data`).
+`data<T, V>(ctx) { tensor { shape(...) { ... } } }` is the phase-aware variant defined in `sk.ainet.context` (separate import: `sk.ainet.context.data`). Its `executionContext` parameter defaults to `DefaultDataExecutionContext()`. Related entry points in the same file (`ContextDsl.kt:19-53`):
+
+```kotlin
+public fun data(executionContext: ExecutionContext = DefaultDataExecutionContext(),
+                content: DataContextDsl.(executionContext: ExecutionContext) -> Unit)  // untyped block form
+
+public inline fun <reified T : DType, V> data(
+    executionContext: ExecutionContext = DefaultDataExecutionContext(),
+    noinline content: TypedDataContextDsl<T, V>.(executionContext: ExecutionContext) -> Tensor<T, V>
+): Tensor<T, V>
+
+public fun createDataMap(executionContext: ExecutionContext = DefaultDataExecutionContext(),
+                         content: DataContextDsl.(executionContext: ExecutionContext) -> Unit
+): Map<String, Tensor<*, *>>  // every tensor in the block must use the named tensor(name) { } overload
+```
+
+Inside a `data { }` block, `DataContextDsl` (in `sk.ainet.lang.tensor.dsl.DataContextDsl`) additionally offers `scalar(value)`, `vector(length) { ... }`, `matrix(rows, columns) { ... }` and a named `tensor(name) { ... }` overload — all with reified-dtype convenience wrappers.
 
 ## `TensorDefineDsl<T, V>`
 
@@ -78,7 +94,7 @@ TensorBuilder<FP32, Float>(FP32::class)
     .shape(2, 3)
     .ones()              // returns TensorInitializer
     .build(ctx)          // materialises to Tensor<FP32, Float>
-// from: TensorDSL.kt:145-203
+// from: TensorDSL.kt:145-267
 ```
 
 Staged form is a substitute for the DSL when you can't run the lambda eagerly (KSP code generation). For everyday code, prefer the DSL form.
@@ -113,13 +129,18 @@ public class TensorSliceBuilder<T : DType, V> {
 
 ## Choosing a dtype + value-type
 
-The pair `<T, V>` must be consistent. From the canonical types in `sk.ainet.lang.types`:
+The pair `<T, V>` must be consistent. `DType` is a sealed interface with fourteen `object` members (`sk.ainet.lang.types.DType.entries`); the value-type mapping follows `DType.kotlinClass()` in `sk.ainet.lang.types.DTypeExtensions.kt:5-20`:
 
 | `T` | `V` |
 |---|---|
 | `FP32` | `Float` |
+| `FP64` | `Double` |
 | `FP16` | `Float` |
-| `Int32` | `Int` |
+| `BF16` | `Float` |
 | `Int8` | `Byte` |
+| `Int16` | `Short` |
+| `Int32` | `Int` |
+| `Int64` | `Long` |
 | `Int4` | `Byte` |
-| `Ternary` | `Byte` |
+| `UInt8` / `UInt16` / `UInt32` / `UInt64` | `UByte` / `UShort` / `UInt` / `ULong` |
+| `Ternary` | `Byte` (as used by `Tensor<Ternary, Byte>` call sites) |

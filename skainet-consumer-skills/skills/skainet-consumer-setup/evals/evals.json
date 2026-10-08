@@ -45,7 +45,7 @@
     },
     {
       "id": "snapshot-repo-when-snapshot-version",
-      "prompt": "I want the latest 0.20.0-SNAPSHOT. Configure my repositories.",
+      "prompt": "I want the latest SKaiNET SNAPSHOT build. Configure my repositories.",
       "must_contain": [
         "central.sonatype.com/repository/maven-snapshots",
         "includeGroupByRegex"

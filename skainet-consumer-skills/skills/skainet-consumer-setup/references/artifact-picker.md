@@ -8,6 +8,8 @@ Decision tree for "I need to do X, what should I add?". Always implies `sk.ainet
 
 You don't need anything beyond `skainet-lang-core` + `skainet-backend-cpu`. Construct the model in code, optionally load weights from a file (next sections), call `model.forward(x, ctx)`.
 
+If the model is a `dag { }` graph program instead of a `sequential` stack, add `skainet-lang-dag` (the graph DSL lives there, not in `skainet-lang-core`).
+
 ### "Load a Hugging Face model in SafeTensors format"
 
 ```
@@ -58,7 +60,13 @@ Likely also wants TurboQuant for KV-cache compression — that's already in `ska
 + skainet-data-transform    # preprocessing
 ```
 
-The training context comes from the same `DirectCpuExecutionContext` with `phase = Phase.TRAIN`.
+The training context comes from the same `DirectCpuExecutionContext` with `phase = Phase.TRAIN` (`DirectCpuExecutionContext.create(Phase.TRAIN)`).
+
+### "Load training data from files, URLs, or the Hugging Face Hub"
+
+```
++ skainet-data-source       # rawDataset { from("hf://owner/repo/data.csv") }, CSV/TSV/JSON/JSONL parsers, caching
+```
 
 ## Compilation / export scenarios
 
@@ -73,10 +81,10 @@ The training context comes from the same `DirectCpuExecutionContext` with `phase
 
 ```
 + skainet-compile-core
-+ skainet-compile-c        # check coordinates - currently part of contributor build, may need direct module dep
++ skainet-compile-c
 ```
 
-(C99 codegen is currently shipped as a SKaiNET-internal module; for now consumers building C99 may need to clone and `composite-build` until/if it's promoted.)
+`sk.ainet.core:skainet-compile-c` is published and BOM-managed. Related export targets: `skainet-compile-json` (JSON graph export), `skainet-compile-minerva` (Minerva secure-MCU export), `skainet-io-iree-params` (`IrpaWriter` for IREE `.irpa` parameter archives).
 
 ## Multi-target scenarios
 
@@ -88,9 +96,15 @@ Common code should depend ONLY on `skainet-lang-core` (and any data/transform mo
 - `iosArm64Main`, `iosSimulatorArm64Main` → `skainet-backend-cpu` (Native target ships)
 - `wasmJsMain`, `wasmWasiMain` → `skainet-backend-cpu`
 
+### "I want the hand-tuned native CPU kernels"
+
+- JVM (desktop/server): add `skainet-backend-native-cpu` to `jvmMain.dependencies` — it reaches the C/NEON kernels through the Java FFM API and auto-registers via ServiceLoader. It is JVM-only on that path; adding it to `commonMain` breaks the Native/JS/Wasm targets.
+- Android: add `skainet-backend-jni-cpu` (AAR) — ART has no FFM, so Android goes through JNI.
+- Since 0.52.0 the kernel packs self-install on first use (`KernelDispatch.ensureInstalled()`); no startup install call is needed.
+
 ### "I'm Java-only (Spring Boot, Android Java, …)"
 
-See [`../skainet-java-consumer/SKILL.md`](../skainet-java-consumer/SKILL.md). The artifact set is a JVM-only subset; the consumer doesn't depend on `skainet-data-simple` (which has Android-specific cinterop) unless explicitly needed.
+See [`../skainet-java-consumer/SKILL.md`](../skainet-java-consumer/SKILL.md). The artifact set is a JVM-only subset of the same coordinates.
 
 ## "Why isn't X resolving?"
 
@@ -98,6 +112,8 @@ See [`../skainet-java-consumer/SKILL.md`](../skainet-java-consumer/SKILL.md). Th
 |---|---|
 | `Unresolved reference: DirectCpuExecutionContext` | Missing `skainet-backend-cpu`. |
 | `Unresolved reference: GGUFModelReader` | Missing `skainet-io-gguf`. |
-| `Could not find sk.ainet:skainet-bom:0.20.0-SNAPSHOT` | Snapshot version without the snapshot repo configured. |
+| `Unresolved reference: dag` | Missing `skainet-lang-dag` (the `dag { }` DSL is not in `skainet-lang-core`). |
+| `Could not find sk.ainet:skainet-bom:<X>-SNAPSHOT` | Snapshot version without the snapshot repo configured. |
+| `UnsupportedClassVersionError` / "class file version 65.0" | Running on a JVM older than 21 — published JVM jars are Java 21 bytecode. |
 | Resolver picks an old version of `kotlinx-coroutines` | Add the BOM (`platform(...)`) — without it the consumer's other libraries can drag in mismatched transitives. |
 | Build passes but native targets fail at link | Backend not added to that target's source set; KMP consumer needs the backend in every target it actually runs on. |

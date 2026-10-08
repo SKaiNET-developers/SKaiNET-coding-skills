@@ -26,13 +26,13 @@ Add SKaiNET to a Gradle project that does NOT live inside the SKaiNET repo. Cent
 
 1. **Use the BOM.** Add `implementation(platform("sk.ainet:skainet-bom:<VERSION>"))` (or the catalog-accessor equivalent) and depend on `sk.ainet.core:skainet-*` artifacts WITHOUT specifying versions. Hard-pinning per-artifact versions silently lets transitives drift.
 2. **The BOM coordinate is `sk.ainet:skainet-bom`. The library coordinates are `sk.ainet.core:skainet-<module>`.** They look like a typo; they're not. The BOM module overrides its group from the project default; libraries publish under `sk.ainet.core`.
-3. **At minimum, every consumer needs `skainet-lang-core` + one backend.** `sk.ainet.core:skainet-lang-core` provides the DSL and types; `sk.ainet.core:skainet-backend-cpu` provides the default CPU runtime. Without the backend, `DirectCpuExecutionContext.create()` won't resolve.
+3. **At minimum, every consumer needs `skainet-lang-core` + one backend.** `sk.ainet.core:skainet-lang-core` provides the DSL and types; `sk.ainet.core:skainet-backend-cpu` provides the default CPU runtime. Without the backend, `DirectCpuExecutionContext.create()` won't resolve. The `dag { }` graph DSL lives in its own artifact, `sk.ainet.core:skainet-lang-dag` — `sequential { }` stays in `skainet-lang-core`.
 4. **Version catalog over inline coordinates.** A consumer project that already uses `gradle/libs.versions.toml` MUST register SKaiNET there too. Mixing styles inside one project is forbidden.
-5. **JVM target ≥ 11.** SKaiNET's published `.jar` is compiled for JVM 11. Configuring the consumer below 11 fails at link time.
+5. **JVM target ≥ 21 on the JVM.** SKaiNET's published JVM `.jar`s are compiled to Java 21 bytecode (the root build sets `jvmTarget = JVM_21` / `--release 21` for all JVM targets). A JVM consumer below 21 fails at link time. The Android compilations of the KMP modules target JVM 11, so Android consumers only need `compileOptions` at 11+.
 
 ## Workflow
 
-1. **Pick the version.** Use the latest stable release from <https://github.com/SKaiNET-developers/SKaiNET/releases>. SNAPSHOT (`0.20.0-SNAPSHOT`) only if the consumer explicitly opts in to the snapshot repo.
+1. **Pick the version.** Use the latest stable release from <https://github.com/SKaiNET-developers/SKaiNET/releases> (`0.57.0` at the time of writing). A `-SNAPSHOT` version only if the consumer explicitly opts in to the snapshot repo.
 2. **Add the BOM** to `libs.versions.toml` and to the consuming module(s).
 3. **Pick the artifact set** from the picker below (4-7).
 4. **Add the snapshot repo** (only if using a `-SNAPSHOT` version) — `maven("https://central.sonatype.com/repository/maven-snapshots/")`.
@@ -43,16 +43,21 @@ Add SKaiNET to a Gradle project that does NOT live inside the SKaiNET repo. Cent
 | You want to … | Add (in addition to `skainet-lang-core` + `skainet-backend-cpu`) |
 |---|---|
 | Define networks and tensors only (no model files yet) | nothing else |
+| Build `dag { }` graph programs | `skainet-lang-dag` |
 | Load a GGUF model | `skainet-io-core` + `skainet-io-gguf` |
 | Load an ONNX model | `skainet-io-core` + `skainet-io-onnx` |
 | Load SafeTensors weights | `skainet-io-core` + `skainet-io-safetensors` |
 | Decode images for input pipelines | `skainet-io-image` |
+| Pull raw data from `file://` / `https://` / `hf://` URIs (`rawDataset { }`, `dataPipeline<T>()`) | `skainet-data-source` |
 | Use built-in datasets (MNIST, etc.) | `skainet-data-simple` |
 | Build preprocessing pipelines (`pipeline().rescale().normalize()`) | `skainet-data-transform` |
-| Compile a DAG to StableHLO / C99 | `skainet-compile-core` + `skainet-compile-hlo` (StableHLO) or `skainet-compile-c` |
+| Compile a DAG to StableHLO | `skainet-compile-core` + `skainet-compile-hlo` |
+| Generate C99 code for embedded targets | `skainet-compile-core` + `skainet-compile-c` |
+| Export weights as IREE Parameter Archives (`.irpa`) | `skainet-io-iree-params` |
+| Hand-tuned native CPU kernels on the JVM (FFM) | `skainet-backend-native-cpu` (JVM-only — `jvmMain`, never `commonMain`) |
+| Hand-tuned native CPU kernels on Android (JNI AAR) | `skainet-backend-jni-cpu` |
 | Run a higher-level pipeline framework | `skainet-pipeline` |
 | Use the YOLO model topology helpers | `skainet-model-yolo` |
-| Test with the in-repo assertion library (rare for consumers) | `skainet-test-groundtruth` |
 
 The full BOM-managed artifact list lives in [`references/bom-coordinates.md`](references/bom-coordinates.md).
 
@@ -63,7 +68,7 @@ The full BOM-managed artifact list lives in [`references/bom-coordinates.md`](re
 ```toml
 # gradle/libs.versions.toml (in your consumer project)
 [versions]
-skainet = "0.20.0-SNAPSHOT"   # or the latest stable
+skainet = "0.57.0"   # latest stable at the time of writing
 
 [libraries]
 skainet-bom = { module = "sk.ainet:skainet-bom", version.ref = "skainet" }
@@ -88,7 +93,7 @@ dependencies {
 
 ```kotlin
 dependencies {
-    implementation(platform("sk.ainet:skainet-bom:0.20.0-SNAPSHOT"))
+    implementation(platform("sk.ainet:skainet-bom:0.57.0"))
     implementation("sk.ainet.core:skainet-lang-core")
     implementation("sk.ainet.core:skainet-backend-cpu")
     implementation("sk.ainet.core:skainet-io-gguf")
@@ -124,8 +129,8 @@ kotlin {
             implementation(libs.skainet.lang.core)
         }
         jvmMain.dependencies {
-            // Backend is JVM-only by default; for KMP you can use it
-            // wherever the JVM (or Android) target compiles.
+            // skainet-backend-cpu is KMP (jvm, android, ios/macos, linux,
+            // js/wasm, androidNative) — add it to every target you run on.
             implementation(libs.skainet.backend.cpu)
         }
         androidMain.dependencies {
@@ -148,23 +153,23 @@ kotlin {
 
 ```kotlin
 // WRONG — pinning per-artifact versions, no BOM
-implementation("sk.ainet.core:skainet-lang-core:0.20.0-SNAPSHOT")
-implementation("sk.ainet.core:skainet-io-gguf:0.19.0")  // drift waiting to happen
+implementation("sk.ainet.core:skainet-lang-core:0.57.0")
+implementation("sk.ainet.core:skainet-io-gguf:0.53.0")  // drift waiting to happen
 ```
 ```kotlin
 // RIGHT — BOM manages all SKaiNET versions in one place
-implementation(platform("sk.ainet:skainet-bom:0.20.0-SNAPSHOT"))
+implementation(platform("sk.ainet:skainet-bom:0.57.0"))
 implementation("sk.ainet.core:skainet-lang-core")
 implementation("sk.ainet.core:skainet-io-gguf")
 ```
 
 ```kotlin
 // WRONG — wrong group for the BOM
-implementation(platform("sk.ainet.core:skainet-bom:0.20.0-SNAPSHOT"))
+implementation(platform("sk.ainet.core:skainet-bom:0.57.0"))
 ```
 ```kotlin
 // RIGHT — BOM lives at sk.ainet, libraries at sk.ainet.core
-implementation(platform("sk.ainet:skainet-bom:0.20.0-SNAPSHOT"))
+implementation(platform("sk.ainet:skainet-bom:0.57.0"))
 implementation("sk.ainet.core:skainet-lang-core")
 ```
 
@@ -186,12 +191,12 @@ dependencies {
 ```
 
 ```kotlin
-// WRONG — JVM target below 11
-kotlin { jvmToolchain(8) }
+// WRONG — JVM toolchain below 21 (published JVM jars are Java 21 bytecode)
+kotlin { jvmToolchain(17) }
 ```
 ```kotlin
-// RIGHT — JVM 11 minimum
-kotlin { jvmToolchain(11) }   // 17 or 21 also fine
+// RIGHT — JVM 21 minimum for JVM targets
+kotlin { jvmToolchain(21) }   // newer also fine
 ```
 
 ## References

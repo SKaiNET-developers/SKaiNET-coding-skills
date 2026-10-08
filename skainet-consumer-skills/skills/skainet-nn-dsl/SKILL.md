@@ -52,7 +52,7 @@ val cnn = sequential<FP32, Float> {
 }
 ```
 
-Layer signatures (from `NetworkBuilder.kt:104-400+`):
+Layer signatures (from `NetworkBuilder.kt:113-467`):
 
 ```kotlin
 input(inputSize: Int, id: String = "", requiresGrad: Boolean = false)
@@ -61,18 +61,24 @@ dense(outputDimension: Int, id: String = "", content: DENSE<T, V>.() -> Unit = {
 flatten(id: String = "", content: FLATTEN<T, V>.() -> Unit = {})
 activation(id: String = "", activation: (Tensor<T, V>) -> Tensor<T, V>)
 softmax(dim: Int = -1, id: String = "")
+gru(hiddenSize: Int, id: String = "", content: GRU<T, V>.() -> Unit = {})
 conv1d(outChannels: Int, kernelSize: Int, stride: Int = 1, padding: Int = 0, dilation: Int = 1, groups: Int = 1, bias: Boolean = true, id: String = "", content: CONV1D<T, V>.() -> Unit = {})
 conv2d(outChannels: Int, kernelSize: Pair<Int, Int>, stride: Pair<Int, Int> = 1 to 1, padding: Pair<Int, Int> = 0 to 0, dilation: Pair<Int, Int> = 1 to 1, groups: Int = 1, bias: Boolean = true, id: String = "", content: CONV2D<T, V>.() -> Unit = {})
 conv3d(outChannels: Int, kernelSize: Triple<Int, Int, Int>, ...)
 maxPool2d(kernelSize: Pair<Int, Int>, stride: Pair<Int, Int> = kernelSize, padding: Pair<Int, Int> = 0 to 0, id: String = "")
-avgPool2d(kernelSize: Pair<Int, Int>, ...)
+avgPool2d(kernelSize: Pair<Int, Int>, stride: Pair<Int, Int> = kernelSize, padding: Pair<Int, Int> = 0 to 0, countIncludePad: Boolean = true, id: String = "")
 upsample2d(scale: Pair<Int, Int> = 2 to 2, mode: UpsampleMode = UpsampleMode.Nearest, alignCorners: Boolean = false, id: String = "")
 batchNorm(numFeatures: Int, eps: Double = 1e-5, momentum: Double = 0.1, affine: Boolean = true, id: String = "")
 groupNorm(numGroups: Int, numChannels: Int, eps: Double = 1e-5, affine: Boolean = true, id: String = "")
 layerNorm(normalizedShape: IntArray, eps: Double = 1e-5, elementwiseAffine: Boolean = true, id: String = "")
+sequential(content: NeuralNetworkDsl<T, V>.() -> Unit)   // nested grouping block
+stage(id: String, content: NeuralNetworkDsl<T, V>.() -> Unit)
+stage<TStage : DType>(id: String, content: NeuralNetworkDsl<TStage, V>.() -> Unit)  // precision-scoped stage
 ```
 
-Each spatial layer has a "content-block-only" overload (`conv2d(id) { outChannels = ...; kernelSize(5); stride(1); padding(2) }`). Use it when configuration is verbose enough to warrant block syntax.
+`conv2d`, `maxPool2d` and `upsample2d` have a "content-block-only" overload (`conv2d(id) { outChannels = ...; kernelSize(5); stride(1); padding(2) }`) — `conv1d`, `conv3d` and `avgPool2d` do not. Use it when configuration is verbose enough to warrant block syntax.
+
+LLM/transformer layer builders (`embedding`, `rmsNorm`, `multiHeadAttention`, `swiGluFFN`, `residual`, `xielu`) are NOT in this DSL — they moved to the SKaiNET-transformers repository's llm-core module (`NetworkBuilder.kt:422-423` notes the move). The fused attention *op* stayed in the engine: `ops.scaledDotProductAttention(query, key, value, mask = null, scale = 0f, causal = false)` (`TensorOps.kt:389-397`) with native grouped-query attention — K/V come as `[batch, nKVHeads, kvLen, headDim]`, `nKVHeads` must divide the query's `nHeads`, and K/V are never tiled up to the query head count.
 
 ### Activation as a separate layer vs function
 
@@ -94,7 +100,7 @@ val program = dag {
     val y = relu(mm)
     output(y)
 }
-// from: SKaiNET/skainet-lang/skainet-lang-dag/src/commonMain/kotlin/sk/ainet/lang/dag/GraphDsl.kt:48-65
+// from: SKaiNET/skainet-lang/skainet-lang-dag/src/commonMain/kotlin/sk/ainet/lang/dag/GraphDsl.kt:43-70
 ```
 
 DAG node helpers (from `GraphDsl.kt`):
@@ -105,11 +111,28 @@ parameter<T : DType>(name: String, spec: TensorSpec): GraphValue<T>
 parameter<reified T : DType, V>(name: String, builder: SymbolicTensorBuilder<T>.() -> TensorSpec): GraphValue<T>
 constant<T : DType>(name: String, spec: TensorSpec): GraphValue<T>
 constant<reified T : DType, V>(name: String, builder: SymbolicTensorBuilder<T>.() -> TensorSpec): GraphValue<T>
-op(operation: Operation, inputs: List<GraphValue<*>>, id: String = "", attributes: Map<String, Any?>): List<GraphValue<*>>
+op(operation: Operation, inputs: List<GraphValue<*>>, id: String = "", attributes: Map<String, Any?> = emptyMap()): List<GraphValue<*>>
 output(vararg values: GraphValue<*>)
 ```
 
 The DAG builder is **definition-only** — no tensors are allocated. The returned `GraphProgram` is consumed by `skainet-compile-dag` to produce a `ComputeGraph`.
+
+### Schedule and dtype hints on DAG nodes
+
+Two annotation DSLs ride a node's `attributes` without changing what the graph computes:
+
+```kotlin
+dag {
+    schedule(parallel("heads")) {                      // every op recorded inside carries the hint
+        op(sdpa, listOf(q, k, v))
+    }
+    op(matmul, listOf(x, w), schedule = parallel("rows", parallelism = 8))   // single op
+    op(matmul, listOf(x, w), dtypePolicy = DTypePolicy.Require(BF16))        // dtype constraint
+}
+// from: SKaiNET/skainet-lang/skainet-lang-dag/src/commonMain/kotlin/sk/ainet/lang/dag/ScheduleDsl.kt + DtypePolicyDsl.kt
+```
+
+`parallel(vararg dims, parallelism = null)` builds a `ScheduleHint` (`sk.ainet.context.schedule.ScheduleHint`). `ScheduleAnnotationPass` (skainet-compile-opt) validates hints per op, and the StableHLO export emits them as the `skainet.schedule` module attribute. Dtype policies feed `DTypeConstraintResolutionPass`.
 
 ### Reusable sub-graphs — `dagModule`
 
@@ -128,7 +151,7 @@ val program = dag {
     val out = module(residualBlock, listOf(x))
     output(out[0])
 }
-// from: SKaiNET/skainet-lang/skainet-lang-dag/src/commonMain/kotlin/sk/ainet/lang/dag/GraphDsl.kt:222-257
+// from: SKaiNET/skainet-lang/skainet-lang-dag/src/commonMain/kotlin/sk/ainet/lang/dag/GraphDsl.kt:419-457
 ```
 
 ## Decision rule — sequential or DAG?
@@ -137,7 +160,7 @@ val program = dag {
 |---|---|
 | MLP, CNN with linear stack of layers, simple RNN | `sequential<T, V> { }` |
 | ResNet (skip connections), U-Net, multi-input, multi-output | `dag { }` |
-| You need symbolic compilation to C / HLO / ONNX | `dag { }` (compiler operates on `GraphProgram`) |
+| You need symbolic compilation to C / StableHLO / JSON / Minerva | `dag { }` (compiler operates on `GraphProgram`) |
 | You're in a unit test and want `model.forward(x, ctx)` directly | `sequential` |
 | You'd like to reuse a sub-graph in multiple places | `dag` + `dagModule { }` |
 

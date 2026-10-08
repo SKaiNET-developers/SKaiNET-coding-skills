@@ -24,9 +24,9 @@ Rules for making SKaiNET features usable from Java without surfacing Kotlin-spec
 
 ## Hard rules
 
-1. **`@file:JvmName("...")` on every Java-callable file.** The file's first non-blank line MUST be `@file:JvmName("...")` followed by `package sk.ainet.java`. The JvmName matches what Java users will type as the class identifier (`SKaiNET`, `TensorJavaOps`, `<Feature>JavaOps`).
-2. **Container shape is `object`, never top-level functions.** A Java-callable surface MUST be `public object Name { ... }`. Never expose top-level `public fun foo(...)` to Java callers — Java sees them as static methods on a synthetic `<FileName>Kt` class.
-3. **Every member carries `@JvmStatic`.** Without it, Java users have to type `SKaiNET.INSTANCE.context()` instead of `SKaiNET.context()`. This rule applies to every public function and every property accessor on the Java-facing object.
+1. **`@file:JvmName("...")` on every static-facade file.** For an `object`-shaped facade, the file's first non-blank line MUST be `@file:JvmName("...")` followed by `package sk.ainet.java`. The JvmName matches what Java users will type as the class identifier (`SKaiNET`, `TensorJavaOps`, `Losses`, `Optimizers`, `<Feature>JavaOps`). A stateful builder that IS a plain `public class` whose Kotlin name is already the Java identifier (`SequentialModelBuilder`, `TrainingLoop`) needs no `@file:JvmName` — but its constructor takes `@JvmOverloads` when it has defaults.
+2. **Stateless surface shape is `object`, never top-level functions.** A static Java-callable surface MUST be `public object Name { ... }`. Never expose top-level `public fun foo(...)` to Java callers — Java sees them as static methods on a synthetic `<FileName>Kt` class. Stateful fluent builders are plain classes with chainable methods returning `this`.
+3. **Every `object` member carries `@JvmStatic`.** Without it, Java users have to type `SKaiNET.INSTANCE.context()` instead of `SKaiNET.context()`. This rule applies to every public function and every property accessor on the Java-facing object.
 4. **Default arguments require `@JvmOverloads`.** Java doesn't see Kotlin defaults; `@JvmOverloads` synthesises overloads with progressively fewer parameters from right to left. Apply it to every `@JvmStatic` function that has a default value.
 5. **Forbidden in Java-facing signatures**:
    - `value class` types (Java sees the boxed form, defeats the purpose)
@@ -43,11 +43,11 @@ Rules for making SKaiNET features usable from Java without surfacing Kotlin-spec
 
 ## Workflow
 
-1. Find the closest sibling under `skainet-*/src/jvmMain/kotlin/sk/ainet/java/`. Mirror its `@file:JvmName`, package declaration, KDoc-with-Java-example header, and member shape.
+1. Find the closest sibling under `skainet-*/src/jvmMain/kotlin/sk/ainet/java/`. The existing surface (as of 0.57.0): `SKaiNET` entry point in `skainet-backends/skainet-backend-cpu`, and `TensorJavaOps`, `Losses`, `Optimizers`, `SequentialModelBuilder`, `TrainingLoop` in `skainet-lang/skainet-lang-core`. Mirror the sibling's `@file:JvmName`, package declaration, KDoc-with-Java-example header, and member shape.
 2. Define the new `object` (or extend an existing one).
 3. For each member: `@JvmStatic` is mandatory; `@JvmOverloads` if any parameter has a default; primitive arrays for bulk data; `Tensor<*, *>` for tensors crossing the boundary.
 4. Implement the member by casting the wildcard tensor to the internal generic form (`Tensor<DType, Any?>`) and delegating to the Kotlin API.
-5. Write a JUnit 5 test under `skainet-test-java/src/test/java/sk/ainet/java/<Feature>JavaOpsTest.java` proving the surface compiles and runs from Java.
+5. Write a JUnit 5 test under `skainet-test-java/src/test/java/sk/ainet/java/<Feature>JavaOpsTest.java` proving the surface compiles and runs from Java (existing mirrors: `SKaiNETTest`, `TensorJavaOpsTest`, `ModelBuilderTest`, `ReleaseApiJavaTest`).
 6. Self-verify with the checklist below before reporting done.
 
 ## Self-verification checklist
@@ -56,8 +56,8 @@ Before declaring the change complete:
 
 - [ ] File starts with `@file:JvmName("...")` (line 1).
 - [ ] File is in `package sk.ainet.java`.
-- [ ] Container is a `public object`.
-- [ ] Every public member has `@JvmStatic`.
+- [ ] Container is a `public object` (or a plain `public class` if it is a stateful fluent builder).
+- [ ] Every public member of an `object` facade has `@JvmStatic`.
 - [ ] Every member with a default has `@JvmOverloads`.
 - [ ] No `value class`, no `Result<T>`, no `Sequence<T>`, no receiver-typed lambdas in any signature.
 - [ ] Tensors cross the boundary as `Tensor<*, *>`.
@@ -102,7 +102,7 @@ public object SKaiNET {
         return ctx.zeros<DType, Any?>(Shape(*shape), kclass)
     }
 }
-// from: SKaiNET/skainet-backends/skainet-backend-cpu/src/jvmMain/kotlin/sk/ainet/java/SKaiNET.kt:1-102
+// from: SKaiNET/skainet-backends/skainet-backend-cpu/src/jvmMain/kotlin/sk/ainet/java/SKaiNET.kt:1-136
 ```
 
 **Ops facade — every member `@JvmStatic`, defaults via `@JvmOverloads`:**

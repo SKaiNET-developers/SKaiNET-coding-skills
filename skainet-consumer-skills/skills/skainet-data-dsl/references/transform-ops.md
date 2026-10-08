@@ -10,11 +10,13 @@ A pipeline is a chain of `Transform<In, Out>` values composed by `then`. The DSL
 val preprocess = pipeline<Tensor<FP32, Float>>()
     .rescale(ctx, scale = 255f)
     .normalize(ctx, mean = mean, std = std, channelAxis = -1)
-    .unsqueeze(0)
+    .unsqueeze(ctx, 0)
 
 val batch = preprocess(raw)
-// from: SKaiNET/skainet-data/skainet-data-transform/src/commonMain/kotlin/sk/ainet/data/transform/TensorTransformDsl.kt:18-23
+// pipeline(): SKaiNET/skainet-data/skainet-data-transform/src/commonMain/kotlin/sk/ainet/data/transform/Transform.kt:168
 ```
+
+`pipeline<T>()` returns an `Identity<T>` transform to chain from; `then` is the infix composer on `Transform<I, O>` (`Transform.kt:92`).
 
 ## Available extensions
 
@@ -32,7 +34,7 @@ public fun <I, T : DType, V> Transform<I, Tensor<T, V>>.normalize(
     std: FloatArray,
     channelAxis: Int = -1
 ): Transform<I, Tensor<T, V>>
-// Channel-wise (`output - mean) / std` along `channelAxis`. Default channelAxis = -1 (last).
+// Channel-wise `(output - mean) / std` along `channelAxis`. Default channelAxis = -1 (last).
 // from: TensorTransformDsl.kt:34-39
 
 public fun <I, T : DType, V> Transform<I, Tensor<T, V>>.scaleAndShift(
@@ -50,13 +52,67 @@ public fun <I, T : DType, V> Transform<I, Tensor<T, V>>.clamp(
 ): Transform<I, Tensor<T, V>>
 // Restrict values to [min, max].
 // from: TensorTransformDsl.kt:72-76
+
+public fun <I, T : DType, V> Transform<I, Tensor<T, V>>.reshape(
+    ctx: ExecutionContext,
+    shape: Shape
+): Transform<I, Tensor<T, V>>
+public fun <I, T : DType, V> Transform<I, Tensor<T, V>>.reshape(
+    ctx: ExecutionContext,
+    vararg dims: Int
+): Transform<I, Tensor<T, V>>
+// from: TensorTransformDsl.kt:84-102
+
+public fun <I, T : DType, V> Transform<I, Tensor<T, V>>.flatten(
+    ctx: ExecutionContext,
+    startDim: Int = 0,
+    endDim: Int = -1
+): Transform<I, Tensor<T, V>>
+// from: TensorTransformDsl.kt:107-112
+
+public fun <I, T : DType, V> Transform<I, Tensor<T, V>>.unsqueeze(
+    ctx: ExecutionContext,
+    dim: Int
+): Transform<I, Tensor<T, V>>
+// Adds a size-1 dimension at `dim`. NOTE: takes the ExecutionContext like every other extension.
+// from: TensorTransformDsl.kt:119-123
+
+public fun <I, T : DType, V> Transform<I, Tensor<T, V>>.squeeze(
+    ctx: ExecutionContext,
+    dim: Int? = null
+): Transform<I, Tensor<T, V>>
+// Removes the size-1 dimension at `dim`, or all size-1 dimensions when null.
+// from: TensorTransformDsl.kt:130-134
 ```
 
-`reshape`, `unsqueeze` and friends follow the same pattern — see the source file for the up-to-date list.
+That is the complete extension list as of 0.57.0.
+
+## Normalization presets
+
+`TensorTransformDsl.kt:150-178` ships three preset objects, each with `mean` and `std` FloatArrays (RGB order):
+
+```kotlin
+pipeline.normalize(ctx, ImageNet.mean, ImageNet.std)      // 0.485/0.456/0.406, 0.229/0.224/0.225
+pipeline.normalize(ctx, CIFAR10Norm.mean, CIFAR10Norm.std)
+pipeline.normalize(ctx, MNISTNorm.mean, MNISTNorm.std)    // grayscale, single channel
+```
+
+## Context-scoped form — `transforms(ctx) { ... }`
+
+`TransformScope<T, V>` re-declares every extension above without the `ctx` parameter; `transforms(ctx) { ... }` opens the scope (`TensorTransformDsl.kt:197-287`):
+
+```kotlin
+val preprocessing = transforms(ctx) {
+    pipeline<Tensor<FP32, Float>>()
+        .rescale(255f)
+        .normalize(ImageNet.mean, ImageNet.std)
+        .unsqueeze(0)
+}
+```
 
 ## Where the actual transform classes live
 
-The functions above produce instances of `Normalize`, `Rescale`, `ScaleAndShift`, `Clamp`, etc. — concrete classes in the same package. The DSL extensions are the call site; the classes are the implementation.
+The functions above produce instances of `Normalize`, `Rescale`, `ScaleAndShift`, `Clamp`, `Reshape`, `Flatten`, `Unsqueeze`, `Squeeze` — concrete classes in `TensorTransforms.kt` in the same package. The DSL extensions are the call site; the classes are the implementation.
 
 ## When to NOT use a pipeline
 

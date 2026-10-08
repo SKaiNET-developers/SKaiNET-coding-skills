@@ -10,7 +10,7 @@ Authoritative source: `SKaiNET/skainet-test/skainet-test-java/build.gradle.kts:9
     <dependency>
       <groupId>sk.ainet</groupId>
       <artifactId>skainet-bom</artifactId>
-      <version>0.20.0-SNAPSHOT</version>
+      <version>0.57.0</version>
       <type>pom</type>
       <scope>import</scope>
     </dependency>
@@ -43,7 +43,8 @@ Both are required for any usable Java consumer:
 ## Optional dependencies (per use case)
 
 ```xml
-<!-- Model loading (pick the formats you need) -->
+<!-- Model loading (pick the formats you need).
+     skainet-io-core also ships TokenizerFactory (sk.ainet.io.tokenizer). -->
 <dependency>
   <groupId>sk.ainet.core</groupId>
   <artifactId>skainet-io-core</artifactId>
@@ -54,7 +55,7 @@ Both are required for any usable Java consumer:
 </dependency>
 <!-- ...skainet-io-onnx, skainet-io-safetensors, skainet-io-image -->
 
-<!-- HLO compilation (StableHloConverterFactory, TokenizerFactory) -->
+<!-- HLO compilation (StableHloConverterFactory) -->
 <dependency>
   <groupId>sk.ainet.core</groupId>
   <artifactId>skainet-compile-core</artifactId>
@@ -73,7 +74,7 @@ Both are required for any usable Java consumer:
 
 ## JDK toolchain
 
-SKaiNET targets JVM 11. Recommended for Java consumers: JDK 21 (matches SKaiNET's own toolchain in `skainet-test-java/build.gradle.kts`).
+SKaiNET's published JVM jars are Java 21 bytecode — the root build enforces JDK 21+ and compiles with `--release 21` / `jvmTarget = JVM_21`. Java consumers therefore need JDK 21 or newer (`skainet-test-java/build.gradle.kts` uses `jvmToolchain(21)`).
 
 Maven (`pom.xml`):
 
@@ -127,5 +128,5 @@ Skip if using a stable release version.
 
 - **Wrong group on the BOM**: it's `sk.ainet`, not `sk.ainet.core`. Hard rule from `skainet-consumer-setup`.
 - **Hard-pinning library versions**: defeats the BOM. Once `<scope>import</scope>` is set up, omit `<version>` on every `sk.ainet.core:*` artifact.
-- **JDK 8 toolchain**: SKaiNET's bytecode targets 11. JDK 8 won't link.
+- **Toolchain below 21**: SKaiNET's JVM bytecode targets 21. JDK 17 or older won't link (`UnsupportedClassVersionError`).
 - **Missing the snapshot repo for `-SNAPSHOT` versions**: Maven won't synthesize one; declare it explicitly.

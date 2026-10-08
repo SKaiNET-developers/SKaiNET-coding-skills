@@ -7,12 +7,13 @@
       "prompt": "Add a new published module `skainet-io:skainet-io-newformat` that depends on `skainet-io:skainet-io-core` and uses kotlinx-io for stream handling. Provide the full set of edits.",
       "must_contain": [
         "include(\"skainet-io:skainet-io-newformat\")",
-        "alias(libs.plugins.kotlinMultiplatform)",
+        "id(\"sk.ainet.multiplatform\")",
         "alias(libs.plugins.vanniktech.mavenPublish)",
         "alias(libs.plugins.binary.compatibility.validator)",
         "id(\"sk.ainet.dokka\")",
         "implementation(libs.kotlinx.io.core)",
-        "api(project(\":skainet-io:skainet-io-core\"))"
+        "api(project(\":skainet-io:skainet-io-core\"))",
+        "POM_ARTIFACT_ID"
       ],
       "must_not_contain": [
         "version = \"3.4.3\"",
@@ -20,32 +21,35 @@
         "implementation(\"org.jetbrains.kotlinx:kotlinx-io-core:0.9.0\")",
         "id(\"org.jetbrains.dokka\") version"
       ],
-      "must_not_contain_reason": "Hard rule 1: every coordinate routes through the catalog; hard rule 4: Dokka is configured by sk.ainet.dokka, not applied directly."
+      "must_not_contain_reason": "Hard rule 1: every coordinate routes through the catalog; hard rule 4: Dokka is configured by sk.ainet.dokka, not applied directly. New modules get targets/explicitApi/kotlin-test from the sk.ainet.multiplatform convention plugin and need a per-module gradle.properties with POM_ARTIFACT_ID/POM_NAME."
     },
     {
       "id": "add-test-deps-via-catalog",
-      "prompt": "Add Kotest as a JVM-test dependency to `skainet-data:skainet-data-transform`.",
+      "prompt": "Add Kotest property-testing dependencies to `skainet-apps:skainet-grayscale-cli`.",
       "must_contain": [
-        "jvmTest.dependencies",
-        "implementation(libs.kotest.runner.junit5)",
-        "implementation(libs.kotest.assertions.core)"
+        "testImplementation(libs.kotest.runner.junit5)",
+        "testImplementation(libs.kotest.assertions.core)",
+        "testImplementation(libs.kotest.property)"
       ],
       "must_not_contain": [
         "io.kotest:kotest-runner-junit5:",
         "version.ref"
       ],
-      "must_not_contain_reason": "Catalog entries already encode versions; module scripts only refer to aliases."
+      "must_not_contain_reason": "Catalog entries already encode versions; module scripts only refer to aliases. Kotest lives only in the skainet-apps CLI tests — library modules use kotlin.test."
     },
     {
       "id": "register-published-module-in-bom",
       "prompt": "I just added skainet-io:skainet-io-newformat. What else changes for it to be a properly published artifact?",
       "must_contain": [
-        "skainet-bom",
+        "POM_ARTIFACT_ID",
         "binary-compatibility-validator",
         "apiDump",
         "vanniktech"
       ],
-      "must_not_contain_reason": null
+      "must_not_contain": [
+        "skainet-bom/build.gradle.kts"
+      ],
+      "must_not_contain_reason": "BOM membership is automatic: the sk.ainet.transformers.bom-coverage convention plugin constrains every module that applies the publish plugin — hand-editing skainet-bom is the pre-0.57.0 workflow."
     },
     {
       "id": "wrong-jvm-target-rejected",
@@ -56,7 +60,7 @@
       "must_not_contain": [
         "JvmTarget.JVM_17"
       ],
-      "must_not_contain_reason": "Hard rule 6: JVM target is fixed at 11 across the project."
+      "must_not_contain_reason": "Android compilations of KMP modules stay at JVM 11 (JVM targets build Java 21 bytecode, set centrally in the root build); per-module deviation only via skainet { androidJvmTarget }."
     }
   ]
 }

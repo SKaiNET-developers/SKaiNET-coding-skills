@@ -13,7 +13,7 @@ Building blocks for tensor data: creation, initialisation, slicing, and transfor
 - Constructing a tensor literal with a known shape and fill (zeros, ones, fill, random, fromArray).
 - Slicing or viewing an existing tensor.
 - Building a preprocessing pipeline (rescale → normalize → unsqueeze → reshape).
-- Choosing a dtype tag (`FP32`, `FP16`, `Int8`, `Int32`, `Int4`, `Ternary`).
+- Choosing a dtype tag (`FP32`, `FP16`, `BF16`, `Int8`, `Int32`, `Int4`, `Ternary`, …).
 
 ## When NOT to use
 
@@ -35,7 +35,7 @@ val t = tensor<FP32, Float>(ctx, FP32::class) {
         }
     }
 }
-// from: SKaiNET/skainet-lang/skainet-lang-core/src/commonMain/kotlin/sk/ainet/lang/tensor/dsl/TensorDSL.kt:17-25
+// from: SKaiNET/skainet-lang/skainet-lang-core/src/commonMain/kotlin/sk/ainet/lang/tensor/dsl/TensorDSL.kt:18-25
 ```
 
 ```kotlin
@@ -47,10 +47,10 @@ val t = data<FP32, Float>(ctx) {
         }
     }
 }
-// from: SKaiNET/skainet-lang/skainet-lang-core/src/commonTest/kotlin/sk/ainet/readme/ReadmeSnippetsTest.kt:18-32
+// from: SKaiNET/skainet-lang/skainet-lang-core/src/commonTest/kotlin/sk/ainet/readme/ReadmeSnippetsTest.kt:20-29
 ```
 
-Use form (b) when you're already inside a phase-aware execution context (training vs eval) and want phase-tagged tensors. Use form (a) for plain inference / tests / examples.
+Use form (b) when you're already inside a phase-aware execution context (training vs eval) and want phase-tagged tensors. Use form (a) for plain inference / tests / examples. `data(...)` defaults its context to `DefaultDataExecutionContext()` when you omit the argument, and has an untyped overload plus `createDataMap(ctx) { tensor(name) { ... } }` that returns every *named* tensor built in the block as a `Map<String, Tensor<*, *>>` (`ContextDsl.kt:19-53`). Inside a `data { }` block you also get `scalar(v)`, `vector(length) { ... }` and `matrix(rows, cols) { ... }` conveniences (`DataContextDsl.kt`).
 
 ### Initialisation strategies inside `shape(...) { ... }`
 
@@ -86,14 +86,14 @@ The number of `segment { }` blocks MUST equal the rank of the tensor — `valida
 ```kotlin
 val preprocess = pipeline<Tensor<FP32, Float>>()
     .rescale(ctx, scale = 255f)
-    .normalize(ctx, mean = imagenetMean, std = imagenetStd, channelAxis = -1)
-    .unsqueeze(0)                 // add batch dim at position 0
+    .normalize(ctx, mean = ImageNet.mean, std = ImageNet.std, channelAxis = -1)
+    .unsqueeze(ctx, 0)            // add batch dim at position 0 — every step takes ctx
 
 val batch = preprocess(rawImageTensor)
-// from: SKaiNET/skainet-data/skainet-data-transform/src/commonMain/kotlin/sk/ainet/data/transform/TensorTransformDsl.kt:18-50
+// from: SKaiNET/skainet-data/skainet-data-transform/src/commonMain/kotlin/sk/ainet/data/transform/TensorTransformDsl.kt:34-134
 ```
 
-Available transform extensions: `rescale`, `normalize`, `scaleAndShift`, `clamp`, `reshape` (more to follow — file is the source of truth).
+Available transform extensions: `rescale`, `normalize`, `scaleAndShift`, `clamp`, `reshape`, `flatten`, `unsqueeze`, `squeeze`. Built-in normalization presets: `ImageNet`, `CIFAR10Norm`, `MNISTNorm` (each exposes `mean` / `std` FloatArrays). A `transforms(ctx) { ... }` scope drops the repeated `ctx` argument — inside it every extension is called without the context (`TensorTransformDsl.kt:197-287`).
 
 ### Dtype tags
 
@@ -101,12 +101,17 @@ Available transform extensions: `rescale`, `normalize`, `scaleAndShift`, `clamp`
 |---|---|---|
 | `FP32` | `Float` | default; training, inference, ground truth |
 | `FP16` | `Float` (promoted) | half precision inference |
+| `BF16` | `Float` (promoted) | bfloat16 weights/inference (NPU-friendly) |
 | `Int32` | `Int` | indices, labels |
 | `Int8` | `Byte` | quantised inference |
 | `Int4` | `Byte` (promoted) | aggressive quantisation |
-| `Ternary` | `Byte` | -1/0/+1 weights |
+| `Ternary` | `Byte` | -1/0/+1 weights (BitNet) |
 
-`tensor<FP32, Float>(...)` — the value-type parameter follows the table above. `tensor<FP32, Int>(...)` will not type-check.
+`DType` is a sealed interface with exactly fourteen `object` members — the table above plus `FP64` (`Double`), `Int16` (`Short`), `Int64` (`Long`) and `UInt8`/`UInt16`/`UInt32`/`UInt64` (`DType.entries`, from `sk.ainet.lang.types.DType`). `tensor<FP32, Float>(...)` — the value-type parameter follows the table above. `tensor<FP32, Int>(...)` will not type-check.
+
+### Memory API — no opt-in needed anymore
+
+The low-level memory/storage API under `sk.ainet.lang.memory` (`Storage`, `Scope`, `Format`, `Layout`, `TensorView`, …) no longer requires `@OptIn(ExperimentalMemoryApi::class)` — the annotation was deleted in 0.54.0. If existing code carries that opt-in, remove it; the symbol no longer exists.
 
 ## Workflow
 

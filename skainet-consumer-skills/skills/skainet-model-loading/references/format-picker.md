@@ -15,10 +15,13 @@
 
 | Format | Loader | Artifact |
 |---|---|---|
-| GGUF | `GGUFModelReader` | `sk.ainet.core:skainet-io-gguf` |
-| SafeTensors | `SafeTensorsParametersLoader` | `sk.ainet.core:skainet-io-safetensors` |
+| GGUF | `StreamingGgufParametersLoader` | `sk.ainet.core:skainet-io-gguf` |
+| SafeTensors (single file) | `SafeTensorsParametersLoader` | `sk.ainet.core:skainet-io-safetensors` |
+| SafeTensors (`model.safetensors.index.json` + shards) | `ShardedSafeTensorsParametersLoader` | `sk.ainet.core:skainet-io-safetensors` |
 | ONNX | `OnnxLoader.fromModelSource` | `sk.ainet.core:skainet-io-onnx` |
 | SKaiNET JSON | (tooling in `skainet-compile-json`) | `sk.ainet.core:skainet-compile-json` |
+
+(`GGUFModelReader` is a deprecated fail-fast stub — see `loaders.md`.)
 
 ## "I have a model in format X, which should I convert to?"
 
@@ -33,7 +36,7 @@ SKaiNET itself does not ship Python conversion tooling; conversion lives in the 
 
 ## When format choice matters at runtime
 
-- **GGUF**: best for LLMs because weights can be quantised in-format (Q4_0, Q8_0) and the loader streams. Use when memory is tight.
+- **GGUF**: best for LLMs because weights can be quantised in-format (Q4_K, Q8_0, …) and the loader streams, preserving the packed encodings for the quantised matmul kernels. With `WeightForm(residency = WeightResidency.MAPPED)` weights are served straight from memory-mapped file pages. Use when memory is tight.
 - **SafeTensors**: best for general transformer weights — fast load, safe (no pickle), good HuggingFace ecosystem support. Pair with a SKaiNET-DSL model definition.
 - **ONNX**: best when you have a trained graph from another framework and want SKaiNET to consume it whole. Higher coupling to `skainet-compile-*` because the graph needs to lower into a runnable `Module`.
 - **JSON**: best for round-tripping models you built with the SKaiNET DSL — diff-friendly, version-controllable.
@@ -42,4 +45,5 @@ SKaiNET itself does not ship Python conversion tooling; conversion lives in the 
 
 - Treating SafeTensors as a "model" — it's weights only. You still need a SKaiNET `Module` (built with `sequential` or `dag`) to bind the weights into.
 - Using `OnnxLoader` to extract weights from an ONNX file when SafeTensors would be cleaner — ONNX loading parses the whole graph; if you only need weights, ask whether SafeTensors is available.
-- Loading GGUF in-memory all at once via a `ByteArray` source — defeats GGUF's streaming model. Use a `RandomAccessSource` factory that mmaps the file.
+- Loading GGUF in-memory all at once via a `ByteArray` source — defeats GGUF's streaming model. Use `openRandomAccessSource(path)` so the loader reads positionally (and can serve mapped weights).
+- Hand-loading each shard of a sharded HF checkpoint with the single-file loader — `ShardedSafeTensorsParametersLoader` takes the index path, resolves shards, and fail-fasts on unsupported dtypes before delivering anything.
