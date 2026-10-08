@@ -72,7 +72,7 @@ runBlocking {
         // bind 'name' -> 'tensor' into your Module's parameters
     }
 }
-// from: SKaiNET/skainet-io/skainet-io-gguf/src/commonMain/kotlin/sk/ainet/io/gguf/StreamingGgufParametersLoader.kt (public surface)
+// from: SKaiNET/skainet-io/skainet-io-gguf/src/commonMain/kotlin/sk/ainet/io/gguf/StreamingGgufParametersLoader.kt:59-115 (public surface)
 ```
 
 The streaming loader parses only the header up front and loads tensor data on demand — suitable for large LLM weights. A file containing tensors outside the supported set fails fast, before any tensor is delivered. Optional constructor knobs: `weightForm` / `weightFormFor` (encoding × byte order × shape × residency, e.g. `WeightForm(residency = WeightResidency.MAPPED)` to serve weights from memory-mapped pages), `keepF16Native` / `keepBf16Native`. For metadata/tokenizer access, use `StreamingGGUFReader.open(source).fields` (e.g. `"general.architecture"`) and `TokenizerFactory.fromGguf(fields)`.
@@ -98,7 +98,7 @@ runBlocking {
         // bind 'name' -> 'tensor' into your Module's parameter map
     }
 }
-// from: SKaiNET/skainet-io/skainet-io-safetensors/src/commonMain/kotlin/sk/ainet/io/safetensors/SafeTensorsParametersLoader.kt (public surface)
+// from: SKaiNET/skainet-io/skainet-io-safetensors/src/commonMain/kotlin/sk/ainet/io/safetensors/SafeTensorsParametersLoader.kt:49-136 (public surface)
 ```
 
 SafeTensors is callback-driven — the loader hands you each tensor as it's parsed; you bind it where it belongs. `tensorFilter` skips tensors without reading them (name allowlists, size guards, dtypes the requested target can't accept) — filtered tensors don't count toward progress. BF16/F16 tensors dequantise to FP32 by default; `bf16Policy` / `fp16Policy = NarrowFloatLoadPolicy.KEEP_NATIVE` keeps the on-disk layout.
@@ -138,7 +138,7 @@ runBlocking {
     val rawBytes = loaded.rawBytes   // for re-serialisation
     // walk proto.graph.nodes / proto.graph.initializers
 }
-// from: SKaiNET/skainet-io/skainet-io-onnx/src/commonMain/kotlin/sk/ainet/io/onnx/OnnxLoader.kt (public surface)
+// from: SKaiNET/skainet-io/skainet-io-onnx/src/commonMain/kotlin/sk/ainet/io/onnx/OnnxLoader.kt:1-57 (public surface)
 ```
 
 ONNX is a graph format — the loader hands you the protobuf representation. Lowering ONNX into a runnable SKaiNET `Module` is the next step (consumer apps typically use `skainet-compile-*` for that).

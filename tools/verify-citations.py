@@ -37,7 +37,10 @@ def collect_citations(repo_root: Path) -> list[tuple[str, str | None, str | None
             text = path.read_text(encoding="utf-8")
             for m in CITE_RE.finditer(text):
                 cites.add((m.group(1), m.group(2), m.group(3), str(path)))
-    return [(p, s, e, Path(src)) for (p, s, e, src) in sorted(cites)]
+    return [
+        (p, s, e, Path(src))
+        for (p, s, e, src) in sorted(cites, key=lambda c: (c[0], c[1] or "", c[2] or "", c[3]))
+    ]
 
 
 def main() -> int:

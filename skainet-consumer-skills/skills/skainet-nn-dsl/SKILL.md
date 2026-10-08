@@ -129,7 +129,8 @@ dag {
     op(matmul, listOf(x, w), schedule = parallel("rows", parallelism = 8))   // single op
     op(matmul, listOf(x, w), dtypePolicy = DTypePolicy.Require(BF16))        // dtype constraint
 }
-// from: SKaiNET/skainet-lang/skainet-lang-dag/src/commonMain/kotlin/sk/ainet/lang/dag/ScheduleDsl.kt + DtypePolicyDsl.kt
+// from: SKaiNET/skainet-lang/skainet-lang-dag/src/commonMain/kotlin/sk/ainet/lang/dag/ScheduleDsl.kt:25-49
+// from: SKaiNET/skainet-lang/skainet-lang-dag/src/commonMain/kotlin/sk/ainet/lang/dag/DtypePolicyDsl.kt:1-64
 ```
 
 `parallel(vararg dims, parallelism = null)` builds a `ScheduleHint` (`sk.ainet.context.schedule.ScheduleHint`). `ScheduleAnnotationPass` (skainet-compile-opt) validates hints per op, and the StableHLO export emits them as the `skainet.schedule` module attribute. Dtype policies feed `DTypeConstraintResolutionPass`.
