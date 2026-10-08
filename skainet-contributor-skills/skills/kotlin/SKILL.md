@@ -23,7 +23,7 @@ Idiomatic Kotlin coding rules for production code in SKaiNET. Covers package lay
 
 ## Hard rules
 
-1. **`explicitApi()` is on for every `kotlin { }` block in this project.** Every public top-level declaration MUST carry an explicit visibility modifier (`public`, `internal`, `private`). Do not write `fun foo()` at top level — write `public fun foo()` or `internal fun foo()`.
+1. **Explicit-API mode is on for every library module in this project.** Older modules call `explicitApi()` in their `kotlin { }` block; modules on the `sk.ainet.multiplatform` convention plugin get it from the plugin (its `skainet { explicitApi }` flag defaults to `true`). Either way, every public top-level declaration MUST carry an explicit visibility modifier (`public`, `internal`, `private`). Do not write `fun foo()` at top level — write `public fun foo()` or `internal fun foo()`.
 2. **Package layout is `sk.ainet.<area>[.<sub-area>]`.** New files MUST live under `src/<sourceset>/kotlin/sk/ainet/...`. Do not introduce new top-level packages.
 3. **No Java-style getters.** Expose Kotlin properties (`val`, `var`) — never `getFoo()` / `setFoo()` on a Kotlin class. Java consumers reach Kotlin through the dedicated facades in `sk/ainet/java/` (covered by `skainet-java-interop`).
 4. **`value class` for any wrapper around a primitive that has semantic meaning** (e.g. tensor IDs, layer names, axis indices). Not for things that need equality on multiple fields — those are `data class`.
@@ -32,6 +32,7 @@ Idiomatic Kotlin coding rules for production code in SKaiNET. Covers package lay
 7. **Coroutines are structured.** Suspend functions belong on a `CoroutineScope` provided by the caller; never launch into `GlobalScope`. Hot streams use `Flow`; cold one-shot APIs use suspend functions.
 8. **Public-API additions are gated by binary-compatibility-validator.** When the build fails because `*.api` changed, regenerate the dump (`./gradlew apiDump`) and own the change in the same commit — don't suppress the check.
 9. **`@PublishedApi internal` is the only way to expose internals to inline functions.** Don't widen visibility just to satisfy `inline fun`.
+10. **Changes to public API shape, DSL syntax/semantics, or tensor dtype/shape/storage/execution behavior need an SKEEP.** SKEEP (SKaiNET Evolution and Enhancement Process) is the project's KEEP-style design-record process: a proposal under `docs/modules/skeep/pages/NNN-short-title.adoc` plus a tracking issue, written before or alongside the implementation. See `CONTRIBUTING.md` for the triggers and procedure; additive features behind an existing interface are DARC features, not SKEEPs.
 
 ## Workflow
 
@@ -71,14 +72,15 @@ public fun <T : DType, V> tensor(
 // from: SKaiNET/skainet-lang/skainet-lang-core/src/commonMain/kotlin/sk/ainet/lang/tensor/dsl/TensorDSL.kt:17-25
 ```
 
-**Module-level KMP plugins (so explicit-API is enforced):**
+**Module-level explicit-API enforcement (hand-rolled KMP modules):**
 
 ```kotlin
 kotlin {
     explicitApi()
     // ... targets ...
 }
-// from: SKaiNET/skainet-lang/skainet-lang-core/build.gradle.kts:14-16
+// from: SKaiNET/skainet-lang/skainet-lang-core/build.gradle.kts:14-15
+// Modules using id("sk.ainet.multiplatform") get explicitApi() from the plugin instead.
 ```
 
 ## Related skills

@@ -13,8 +13,9 @@ Calling SKaiNET from a pure-Java app: which Maven artifacts to depend on, the en
 - The consumer project's source is `.java`, not `.kt`, and they want to use SKaiNET.
 - Maven (not Gradle) configuration for SKaiNET dependencies.
 - Calling `SKaiNET.context()`, `SKaiNET.tensor(...)`, `SKaiNET.zeros(...)`, `TensorJavaOps.add(...)`, etc. from Java.
-- Using `StableHloConverterFactory.createBasic()` / `createExtended()` for HLO export.
+- Using `StableHloConverterFactory.createBasic()` / `createExtended()` / `createFast()` for HLO export.
 - Using `TokenizerFactory.fromGguf(metadata)` to build a tokenizer from a GGUF file.
+- Building and training simple models from Java via `SequentialModelBuilder`, `Optimizers`, `Losses`, `TrainingLoop`.
 - Reading the Java JUnit 5 tests in `skainet-test-java` as canonical usage examples.
 
 ## When NOT to use
@@ -29,10 +30,10 @@ Calling SKaiNET from a pure-Java app: which Maven artifacts to depend on, the en
    - `sk.ainet:skainet-bom:<VERSION>` (BOM)
    - `sk.ainet.core:skainet-lang-core` (DSL types + `SKaiNET` + `TensorJavaOps`)
    - `sk.ainet.core:skainet-backend-cpu` (`DirectCpuExecutionContext.create()`)
-   - Optional loaders: `skainet-io-core` + `skainet-io-{gguf|onnx|safetensors}`
+   - Optional loaders: `skainet-io-core` + `skainet-io-{gguf|onnx|safetensors}` (`TokenizerFactory` lives in `skainet-io-core`)
    - Optional HLO: `skainet-compile-core` + `skainet-compile-hlo`
    The `skainet-test-java` consumer module's `build.gradle.kts` is the canonical reference for the dependency set: `SKaiNET/skainet-test/skainet-test-java/build.gradle.kts:9-21`.
-2. **JVM target ≥ 11.** Java 21 is recommended (matches SKaiNET's own JDK toolchain). The HLO test harness uses preview features and the Vector API (`--enable-preview --add-modules jdk.incubator.vector`); only enable those flags if you actually use Vector / preview APIs.
+2. **JDK 21+.** SKaiNET's published JVM jars are Java 21 bytecode (the build compiles with `--release 21` / `jvmTarget = JVM_21`), so the consumer's toolchain and runtime must be 21 or newer. The HLO test harness uses preview features and the Vector API (`--enable-preview --add-modules jdk.incubator.vector`); only enable those flags if you actually use Vector / preview APIs.
 3. **Always go through `SKaiNET` and `TensorJavaOps` — never import internal `sk.ainet.lang.*` or `sk.ainet.context.*` packages from Java unless absolutely necessary.** The Java entry points are the supported surface.
 4. **Tensors crossing into Java are `Tensor<?, ?>`** (the Java view of `Tensor<*, *>`). Don't try to declare `Tensor<DType, Float>` in Java — the Kotlin `*` projection collapses to `?` and any further generic bounds are awkward.
 5. **DType is `DType.fp32()`, `DType.int32()`, `DType.int8()`, etc.** — never `KClass`. The `SKaiNET` factory takes a `DType` instance and resolves to a `KClass<DType>` internally.
@@ -56,7 +57,7 @@ Calling SKaiNET from a pure-Java app: which Maven artifacts to depend on, the en
     <dependency>
       <groupId>sk.ainet</groupId>
       <artifactId>skainet-bom</artifactId>
-      <version>0.20.0-SNAPSHOT</version>
+      <version>0.57.0</version>
       <type>pom</type>
       <scope>import</scope>
     </dependency>
@@ -88,7 +89,7 @@ Calling SKaiNET from a pure-Java app: which Maven artifacts to depend on, the en
 
 ```kotlin
 dependencies {
-    implementation(platform("sk.ainet:skainet-bom:0.20.0-SNAPSHOT"))
+    implementation(platform("sk.ainet:skainet-bom:0.57.0"))
     implementation("sk.ainet.core:skainet-lang-core")
     implementation("sk.ainet.core:skainet-backend-cpu")
 }
@@ -162,9 +163,9 @@ StableHloConverter extended = StableHloConverterFactory.createExtended();
 **Tokenizer from GGUF metadata:**
 
 ```java
-import sk.ainet.tokenizer.Tokenizer;
-import sk.ainet.tokenizer.TokenizerFactory;
-import sk.ainet.tokenizer.UnsupportedTokenizerException;
+import sk.ainet.io.tokenizer.Tokenizer;
+import sk.ainet.io.tokenizer.TokenizerFactory;
+import sk.ainet.io.tokenizer.UnsupportedTokenizerException;
 
 try {
     Tokenizer tok = TokenizerFactory.fromGguf(ggufMetadataMap);
@@ -172,7 +173,30 @@ try {
 } catch (UnsupportedTokenizerException e) {
     // GGUF didn't carry a recognised tokenizer; fall back to a manual one
 }
+// package sk.ainet.io.tokenizer, shipped in skainet-io-core
 // from: SKaiNET/skainet-test/skainet-test-java/src/test/java/sk/ainet/java/ReleaseApiJavaTest.java
+```
+
+**Build + train a small model entirely from Java (no Kotlin module needed):**
+
+```java
+import sk.ainet.java.SequentialModelBuilder;
+
+Module<?, ?> model = new SequentialModelBuilder(ctx)
+        .input(4)
+        .dense(8)
+        .relu()
+        .dense(2)
+        .build();
+
+TrainingLoop loop = TrainingLoop.builder()
+        .model(model)
+        .loss(Losses.mse())
+        .optimizer(Optimizers.adam())   // lr defaults to 0.001
+        .context(ctx)
+        .build();
+float lastLoss = loop.step(x, y);       // or loop.train(dataSupplier, epochs)
+// from: SKaiNET/skainet-test/skainet-test-java/src/test/java/sk/ainet/java/ModelBuilderTest.java
 ```
 
 **Spring Boot bean wiring (typical):**
@@ -201,7 +225,7 @@ public class Classifier {
 }
 ```
 
-For models, consumers typically build the `Module` in a small Kotlin module (the DSL is awkward from Java) and expose the `Module<FP32, Float>` to the Java service layer. Mixed-language consumer projects are the norm.
+For simple feed-forward models, `SequentialModelBuilder` (package `sk.ainet.java`) covers the whole flow from Java. For anything the builder doesn't cover (conv nets, DAGs, custom modules), consumers build the `Module` in a small Kotlin module (the receiver-typed DSL is awkward from Java) and expose the `Module<FP32, Float>` to the Java service layer. Mixed-language consumer projects are the norm.
 
 ## Related skills
 
@@ -252,15 +276,15 @@ public CompletableFuture<Tensor<?, ?>> loadTensorAsync(String name) {
 ```
 
 ```java
-// WRONG — JVM 8 toolchain
-java { toolchain { languageVersion = JavaLanguageVersion.of(8) } }
+// WRONG — toolchain below 21 (SKaiNET jars are Java 21 bytecode)
+java { toolchain { languageVersion = JavaLanguageVersion.of(17) } }
 ```
 ```java
-// RIGHT — JVM 11+
+// RIGHT — JDK 21+
 java { toolchain { languageVersion = JavaLanguageVersion.of(21) } }
 ```
 
 ## References
 
 - [`references/maven-deps.md`](references/maven-deps.md) — Maven `<dependency>` blocks, BOM import scope, JDK toolchain notes.
-- [`references/java-entry-points.md`](references/java-entry-points.md) — every Java-friendly entry point currently shipped (`SKaiNET`, `TensorJavaOps`, `StableHloConverterFactory`, `TokenizerFactory`, `TensorSpecs`).
+- [`references/java-entry-points.md`](references/java-entry-points.md) — every Java-friendly entry point currently shipped (`SKaiNET`, `TensorJavaOps`, `SequentialModelBuilder`, `Optimizers`, `Losses`, `TrainingLoop`, `StableHloConverterFactory`, `TokenizerFactory`, `TensorSpecs`).

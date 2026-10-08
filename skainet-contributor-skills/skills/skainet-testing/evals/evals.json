@@ -3,23 +3,24 @@
   "skill": "skainet-testing",
   "scenarios": [
     {
-      "id": "matmul-kotest-standard-tolerance",
-      "prompt": "Add a Kotest StringSpec test under skainet-lang-core/src/jvmTest/kotlin asserting that 2x3 @ 3x2 matmul of FP32 tensors equals the expected 2x2 result within STANDARD tolerance.",
+      "id": "matmul-kotlin-test-standard-tolerance",
+      "prompt": "Add a kotlin.test test under skainet-lang-core/src/jvmTest/kotlin asserting that 2x3 @ 3x2 matmul of FP32 tensors equals the expected 2x2 result within STANDARD tolerance.",
       "must_contain": [
-        "import io.kotest.core.spec.style.StringSpec",
+        "import kotlin.test.Test",
         "import sk.ainet.test.groundtruth.TensorAssertions",
         "import sk.ainet.test.groundtruth.ToleranceConfig",
         "TensorAssertions.assertTensorClose",
         "ToleranceConfig.STANDARD"
       ],
       "must_not_contain": [
+        "io.kotest",
         "kotlin.test.assertEquals",
         "1e-5f",
         "1e-6f",
         "ToleranceConfig.STRICT",
         "ToleranceConfig.RELAXED"
       ],
-      "must_not_contain_reason": "matmul accumulates kernel products and lives in the STANDARD bucket. STRICT is too tight; literal epsilons bypass the tolerance policy."
+      "must_not_contain_reason": "kotlin.test is the runner in jvmTest too — Kotest only remains in the skainet-apps CLI property tests. matmul accumulates kernel products and lives in the STANDARD bucket; literal epsilons bypass the tolerance policy."
     },
     {
       "id": "softmax-relaxed-tolerance",
@@ -34,7 +35,7 @@
         "ToleranceConfig.STANDARD",
         "ToleranceConfig.STRICT"
       ],
-      "must_not_contain_reason": "Kotest cannot run in commonTest; softmax is a transcendental and must use RELAXED."
+      "must_not_contain_reason": "Library modules use kotlin.test everywhere (commonTest and jvmTest); softmax is a transcendental and must use RELAXED."
     },
     {
       "id": "java-mirror-existing-pattern",

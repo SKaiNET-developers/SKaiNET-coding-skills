@@ -9,8 +9,9 @@
 | Multiple inputs (image + metadata) | `dag { }` |
 | Multiple outputs (multi-task heads) | `dag { }` |
 | To call `.forward(x, ctx)` directly | `sequential` |
-| To compile to C / HLO / ONNX | `dag` (compiler operates on `GraphProgram`) |
+| To compile to C / StableHLO / JSON / Minerva (MCU) | `dag` (compiler operates on `GraphProgram`) |
 | To reuse a sub-graph | `dag` + `dagModule { }` |
+| To stamp schedule hints (`schedule(parallel("heads")) { }`) or dtype policies on nodes | `dag` |
 
 ## Why these two builders, not one
 
@@ -28,6 +29,7 @@ Triggers to migrate:
 - You start hacking around the linear-stack constraint (e.g. computing branch outputs outside the builder and zipping them back in).
 - You need shape information per node for compilation / quantisation / export.
 - You want to share a sub-graph between two models.
+- You need per-node compile hints — schedule annotations (`schedule(parallel("heads")) { ... }`) or dtype policies (`op(..., dtypePolicy = ...)`) only exist on `dag { }` nodes.
 
 How to migrate:
 1. Identify the input(s) and turn each into a `dag { val x = input<...>("x", spec) ... }`.

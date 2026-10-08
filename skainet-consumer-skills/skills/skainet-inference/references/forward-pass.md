@@ -68,27 +68,28 @@ Forward is synchronous and CPU-bound:
 | Android — UI handler | `withContext(Dispatchers.Default) { ... }` from a `lifecycleScope.launch { }`. |
 | KMP Native (iOS) | a worker thread / dispatcher; never the main runloop. |
 
-The CPU backend itself doesn't multi-thread within one `forward` call (the platform's NEON / SSE intrinsics process one batch element at a time). For higher throughput, batch larger or run multiple `forward` calls concurrently.
+Whether one `forward` call multi-threads internally is the context's `Schedule` (0.54.0+): on the JVM the default is `CoroutineSchedule.hardware()`, so scheduled ops (scaled-dot-product attention first) spread their independent `(batch, head)` units across cores; on Android, Kotlin/Native and JS/Wasm the default is `Schedule.Sequential`. Results are bit-identical either way. For many concurrent `forward` calls on a server, consider `ctx.withSchedule(Schedule.Sequential) { ... }` to avoid oversubscribing the pool — see `execution-context.md`.
 
 ## Concurrency safety
 
-`DirectCpuExecutionContext` is safe to share across coroutines doing `forward` calls — the per-tensor `ops` field is stateless. The execution stats accumulator is the only shared state, and it's tolerant of concurrent updates.
+Sharing one `DirectCpuExecutionContext` across coroutines doing `forward` calls is the normal pattern; since 0.54.0 the kernel registries (`KernelDispatch`, `KernelRegistry`) are safe for concurrent reads.
 
-A `Module` is also safe to share — its parameters are immutable in `EVAL`. In `TRAIN`, only one coroutine should run forward+backward at a time per `Module`.
+A `Module` is also safe to share for inference — its parameters are not mutated in `EVAL`. In `TRAIN`, only one coroutine should run forward+backward at a time per `Module`.
 
 ## Observing intermediate layers
 
-Don't reach for reflection; use `ForwardHooks`:
+Don't reach for reflection; use `ForwardHooks` (`sk.ainet.lang.nn.hooks`):
 
 ```kotlin
 val ctx = DirectCpuExecutionContext(
     phase = Phase.EVAL,
     _hooks = object : ForwardHooks {
-        override fun onLayerOutput(layerId: String, output: Tensor<*, *>) {
-            println("$layerId: ${output.shape}")
+        override fun onForwardBegin(module: ModuleNode, input: Any) {}
+        override fun onForwardEnd(module: ModuleNode, input: Any, output: Any) {
+            println("${module.name}: ${(output as? Tensor<*, *>)?.shape}")
         }
     }
 )
 ```
 
-Layer ids come from the optional `id = "..."` argument on each layer call (`dense(128, id = "fc1")`); auto-generated if you didn't set them.
+`Module.forward` invokes the hooks around every module in the tree; `module.name` / `module.path` identify the layer. Ids come from the optional `id = "..."` argument on each layer call (`dense(128, id = "fc1")`); auto-generated if you didn't set them.

@@ -28,6 +28,15 @@ The dispatcher contract:
 
 `forward(...)` is CPU-bound; never use `Dispatchers.Main` or `Dispatchers.IO` for it.
 
+## Intra-op threading: the `Schedule`, and the JNI kernel pool
+
+Two separate layers (0.54.0+):
+
+- **`ctx.schedule`** (`sk.ainet.context.schedule.Schedule`) says how an op's independent work maps onto tasks. On Android the platform default is `Schedule.Sequential` — one task, the caller's thread. (The JVM's `CoroutineSchedule` lives in `skainet-backend-cpu` *jvmMain* and is not part of the Android compilation.) A schedule never changes results.
+- **The native kernels thread themselves.** With `skainet-backend-jni-cpu`, the packed-quant matmul kernels run on their own native worker pool (engaged at `outputDim >= 512`, spin-then-park — the llama.cpp trick), independent of the Kotlin dispatcher you call `forward` from. Results are bit-identical to single-threaded. So one `forward` call on `Dispatchers.Default` already uses multiple cores for the heavy matmuls.
+
+Practical consequence: don't fan one request out over many coroutines to "parallelise" a single forward pass — run one forward per request on `Dispatchers.Default` and let the kernels thread.
+
 ## Memory pressure — `onTrimMemory(level)`
 
 Override on `Application`:
@@ -55,6 +64,8 @@ override fun onTrimMemory(level: Int) {
 
 After dropping, set the holder reference to `null`. The next `model()` call rebuilds — make sure the rebuild path is fast (cached weight file vs. re-download).
 
+Note on mapped GGUF weights (`AndroidGguf.loader`, default `WeightResidency.MAPPED`): tensor payloads live in file-backed page cache, which the OS evicts under pressure on its own — they never count against the ART heap cap. `onTrimMemory` still matters for everything heap-staged: the KV cache, activations, dense/repacked tensors, and your own caches.
+
 ## ABI filters
 
 ```kotlin
@@ -70,11 +81,13 @@ What to ship:
 - **`arm64-v8a` + `armeabi-v7a`** — adds ~30% to native lib size; covers older / cheaper devices.
 - **`x86_64`** — emulator only (Android Studio runs x86 emulators). Don't ship in the production split.
 
+The `skainet-backend-jni-cpu` AAR builds `.so`s for `arm64-v8a` and `x86_64`, 16 KB-page-aligned (required on Android 15+ devices with 16 KB pages). On arm64, two tiers are built from the same sources and selected at load time from `/proc/cpuinfo`: baseline `armv8-a` NEON (runs on every arm64 core) and `armv8.2-a+fp16+dotprod` (faster q4k/q6k paths, gated so Cortex-A53-class cores don't SIGILL). On 32-bit ARM devices the scalar reference kernels run; benchmark on arm64 hardware.
+
 Use App Bundles (`AAB`) — Play Store auto-splits per-device, so you can list multiple ABIs without paying the size cost on every device.
 
 ## Locking (multi-coroutine forward)
 
-`DirectCpuExecutionContext` is thread-safe for read-only inference. If two coroutines might enter `forward(...)` simultaneously, that's fine — they share the context, not the model state.
+Sharing one `DirectCpuExecutionContext` across coroutines doing inference is the normal pattern; since 0.54.0 the kernel registries are safe for concurrent reads. If two coroutines might enter `forward(...)` simultaneously, that's fine — they share the context, not the model state.
 
 If you're updating the `Module` (loading new weights, swapping), guard with a `Mutex`:
 

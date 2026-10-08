@@ -14,7 +14,7 @@
         "<artifactId>skainet-backend-cpu</artifactId>"
       ],
       "must_not_contain": [
-        "<version>0.20.0-SNAPSHOT</version>\n      <scope>compile</scope>",
+        "<version>0.57.0</version>\n      <scope>compile</scope>",
         "<groupId>sk.ainet</groupId>\n      <artifactId>skainet-lang-core</artifactId>"
       ],
       "must_not_contain_reason": "BOM-managed artifacts must omit <version>; libraries are sk.ainet.core, not sk.ainet."

@@ -24,7 +24,7 @@ Rules for configuring Kotlin Multiplatform targets and source-set hierarchies in
 
 ## Hard rules
 
-1. **Canonical target list for a published library** (mirror `skainet-lang-core`'s set unless there's a documented reason not to):
+1. **New modules get their targets from the `sk.ainet.multiplatform` convention plugin, not a hand-written list.** Apply `id("sk.ainet.multiplatform")` (plus `alias(libs.plugins.androidMultiplatformLibrary)` to opt into Android) and declare `skainet { namespace = "sk.ainet.<area>" }`. The default target set is `jvm`, `js { browser() }`, `wasmJs { browser() }`, `wasmWasi { nodejs() }`, `apple` (`iosArm64`, `iosSimulatorArm64`, `macosArm64`) and `linux` (`linuxX64`, `linuxArm64`); a module that differs sets the `skainet.targets` Gradle property in its own `gradle.properties` (comma-separated list; `androidNative` adds `androidNativeArm32`/`androidNativeArm64` for vendor-native backends; `none` means the module declares every target itself). The plugin also applies `explicitApi()` and wires `kotlin-test` into `commonTest` (both switchable in `skainet { }`). Older modules such as `skainet-lang-core` still write the same canonical list by hand:
    - `jvm()`
    - `android { namespace = "sk.ainet.<area>"; compileSdk = libs.versions.android.compileSdk.get().toInt(); minSdk = libs.versions.android.minSdk.get().toInt(); compilerOptions { jvmTarget.set(JvmTarget.JVM_11) } }`
    - `iosArm64()`, `iosSimulatorArm64()`
@@ -35,26 +35,46 @@ Rules for configuring Kotlin Multiplatform targets and source-set hierarchies in
    - `@OptIn(ExperimentalWasmDsl::class) wasmJs { browser() }`, `@OptIn(ExperimentalWasmDsl::class) wasmWasi { nodejs() }`
 2. **`expect` lives in `commonMain`. `actual` lives in the narrowest source set that needs the platform API** — `jvmMain` for `java.io`, `iosArm64Main` for an iOS-specific call, etc.
 3. **`commonMain` is the default home for Kotlin code.** Move a file out only when it imports a platform API that `commonMain` cannot resolve.
-4. **`commonTest` uses `kotlin.test`. `jvmTest` may add Kotest.** Kotest's runner is JVM-only — never import it from a `commonTest` source set.
+4. **`kotlin.test` everywhere — `commonTest` AND `jvmTest` in library modules.** Kotest's runner is JVM-only, so never import it from a `commonTest` source set; in practice the library modules' `jvmTest` sets use `kotlin.test` too, and Kotest (runner + assertions + property) appears only in the `skainet-apps/skainet-grayscale-cli` JVM test suite.
 5. **Source-set dependencies use the per-set DSL** (`commonMain.dependencies { }`, `jvmMain.dependencies { }`), or the `sourceSets { commonMain { dependencies { ... } } }` form. Don't add dependencies to the bare `dependencies { }` block at the top level of a KMP module — that's a JVM-only Gradle pattern.
 6. **`api(...)` only when the dependency's types appear in the public Kotlin signatures of the consuming source set.** Otherwise `implementation(...)`. The KSP annotations module is a deliberate `api(...)` because KSP-generated code references those annotations from `commonMain`.
-7. **KSP-generated sources for `commonMain` are added explicitly** to `commonMain.kotlin.srcDir("build/generated/ksp/metadata/commonMain/kotlin")`. The `tasks.configureEach { … dependsOn("kspCommonMainKotlinMetadata") }` block at the bottom of the build script is required — copy it verbatim from `skainet-lang-core/build.gradle.kts:72-77` when KSP is involved.
-8. **Don't introduce target-specific intermediate source sets without a reason.** Use the default hierarchy template (`iosMain` aggregating `iosArm64Main` + `iosSimulatorArm64Main`; `nativeMain` aggregating all native targets) only when at least two siblings actually share code.
+7. **KSP-generated sources for `commonMain` are added explicitly** to `commonMain.kotlin.srcDir("build/generated/ksp/metadata/commonMain/kotlin")`. The `tasks.configureEach { … dependsOn("kspCommonMainKotlinMetadata") }` block at the bottom of the build script is required — copy it verbatim from `skainet-lang-core/build.gradle.kts:85-90` when KSP is involved.
+8. **Don't introduce target-specific intermediate source sets without a reason.** Use the default hierarchy template (`iosMain` aggregating `iosArm64Main` + `iosSimulatorArm64Main`; `nativeMain` aggregating all native targets) only when at least two siblings actually share code. For code shared between the JVM and Android compilations only (e.g. `java.nio` mmap storage), the project pattern is a plain shared source *directory* — `src/jvmAndroidMain/kotlin` added via `kotlin.srcDir(...)` to both `jvmMain` and `androidMain` — not an intermediate source set, so each compilation keeps its full platform classpath (see `skainet-lang-core/build.gradle.kts:71-76`, #921).
 
 ## Workflow
 
-1. Open the closest sibling module's `build.gradle.kts` and copy its target list — divergence from the canonical set MUST be justified in the change description.
+1. For a new module, apply `id("sk.ainet.multiplatform")` and only declare `skainet.targets` in the module's `gradle.properties` if it must diverge from the default set (divergence MUST be justified in the change description). When editing an older hand-rolled module, keep its existing target list in sync with the canonical set.
 2. Decide the source set for the new code:
    - Pure Kotlin, no platform API → `commonMain`.
    - Platform API needed → narrowest source set (`jvmMain`, `iosArm64Main`, `wasmJsMain`).
    - Cross-platform behaviour with platform-specific implementation → `expect` in `commonMain`, `actual` in each platform source set that the module targets.
 3. Wire dependencies in the matching source-set block (`commonMain.dependencies { }`, etc.).
-4. Add tests in the matching test source set (`commonTest` for cross-target, `jvmTest` for JVM-only tooling like Kotest).
+4. Add tests in the matching test source set (`commonTest` for cross-target, `jvmTest` for JVM-only fixtures) — `kotlin.test` in both.
 5. Run `./gradlew :module:assemble` to validate every target compiles. If a Native target fails, the source set probably leaked a JVM API — move it to `jvmMain`.
 
 ## Canonical examples
 
-**Full target list with explicit-API mode:**
+**Convention-plugin module (preferred for new modules):**
+
+```kotlin
+plugins {
+    id("sk.ainet.multiplatform")
+    alias(libs.plugins.androidMultiplatformLibrary)   // opt into Android
+    alias(libs.plugins.vanniktech.mavenPublish)
+    alias(libs.plugins.binary.compatibility.validator)
+    id("sk.ainet.dokka")
+}
+
+// Default target set (jvm, js, wasmJs, wasmWasi, apple, linux + Android from the
+// AGP plugin above), explicitApi() and kotlin-test in commonTest all come from
+// sk.ainet.multiplatform.
+skainet {
+    namespace = "sk.ainet.pipeline"
+}
+// from: SKaiNET/skainet-pipeline/build.gradle.kts:1-15
+```
+
+**Full hand-rolled target list with explicit-API mode (older modules):**
 
 ```kotlin
 kotlin {
@@ -116,7 +136,8 @@ sourceSets {
         implementation(libs.kotlin.test)
     }
 }
-// from: SKaiNET/skainet-lang/skainet-lang-core/build.gradle.kts:52-68
+// from: SKaiNET/skainet-lang/skainet-lang-core/build.gradle.kts:52-81 (abridged — the
+// full block also adds the shared src/jvmAndroidMain directory to jvmMain and androidMain)
 ```
 
 **KSP wiring required when `commonMain` consumes generated code:**
@@ -132,7 +153,7 @@ tasks.configureEach {
 dependencies {
     add("kspCommonMainMetadata", project(":skainet-lang:skainet-lang-ksp-processor"))
 }
-// from: SKaiNET/skainet-lang/skainet-lang-core/build.gradle.kts:72-83
+// from: SKaiNET/skainet-lang/skainet-lang-core/build.gradle.kts:85-96
 ```
 
 ## Related skills
@@ -175,11 +196,9 @@ public actual fun loadModelFile(path: String): ByteArray = java.io.File(path).re
 import io.kotest.core.spec.style.StringSpec  // Kotest runner is JVM-only
 ```
 ```kotlin
-// RIGHT — Kotest in jvmTest, kotlin.test in commonTest
-// commonTest/.../FooTest.kt
+// RIGHT — kotlin.test in commonTest and jvmTest alike
+// commonTest/.../FooTest.kt  (and jvmTest, in library modules)
 import kotlin.test.Test
-// jvmTest/.../FooSpec.kt
-import io.kotest.core.spec.style.StringSpec
 ```
 
 ## References

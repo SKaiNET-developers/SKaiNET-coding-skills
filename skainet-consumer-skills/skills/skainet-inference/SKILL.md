@@ -6,16 +6,16 @@ version: 0.1.0
 
 # skainet-inference
 
-Running a SKaiNET model: `ExecutionContext` lifecycle, the forward pass, eval/train phase toggling, and TurboQuant for KV-cache or weight compression. The four steps that connect "I have a model" to "I have predictions."
+Running a SKaiNET model: `ExecutionContext` lifecycle, the forward pass, eval/train phase toggling, the `Schedule` API for intra-op threading, and TurboQuant for KV-cache compression. The four steps that connect "I have a model" to "I have predictions."
 
 ## When to use
 
 - Running a forward pass.
 - Picking between `DirectCpuExecutionContext.create()` and `DefaultNeuralNetworkExecutionContext()`.
 - Switching a model between eval and train phases.
-- Configuring TurboQuant on tensors (KV cache, weights).
+- Configuring TurboQuant for the KV cache.
 - Batching multiple inputs through one `forward` call.
-- Threading concerns: which thread should host the forward pass?
+- Threading concerns: which thread hosts the forward pass, and how many cores one op uses (`ctx.schedule`, `ctx.withSchedule`, `Schedule.Sequential`).
 
 ## When NOT to use
 
@@ -31,8 +31,9 @@ Running a SKaiNET model: `ExecutionContext` lifecycle, the forward pass, eval/tr
 2. **`Phase.EVAL` is the default for inference.** `DirectCpuExecutionContext.create()` returns `EVAL`; do not pass `Phase.TRAIN` "for safety" — dropout / batchnorm change behaviour.
 3. **`forward(x, ctx)` is synchronous and CPU-bound.** Run it on a worker thread / dispatcher (`Dispatchers.Default` for compute, `Dispatchers.IO` for IO-mixed). Never on the Android main thread.
 4. **Inputs MUST have the shape the model declares.** A model with `input(28 * 28)` accepts `[batch, 784]`; with `input(intArrayOf(1, 28, 28))` accepts `[batch, 1, 28, 28]`. Reshape at the source, not by silently letting the framework error in the middle of a layer.
-5. **TurboQuant is opt-in.** Apply it only to specific tensors (KV cache, weights) — don't blanket-encode everything. The quantisation rounds and the choice of bits (2/3/4/8) is a quality/size trade-off the consumer must make consciously.
-6. **Don't read intermediate activations through reflection.** Use `ForwardHooks` (passed via `_hooks` to the `ExecutionContext` constructor) when you need to observe layer outputs.
+5. **Intra-op parallelism is the context's `Schedule`, not yours.** Since 0.54.0 every `ExecutionContext` carries a `sk.ainet.context.schedule.Schedule` that says how many tasks an op's independent work spreads over. The JVM default is `CoroutineSchedule.hardware()` (one task per core); every other target defaults to `Schedule.Sequential`. A schedule never changes results — scheduled runs are bit-identical to sequential ones. Want single-threaded kernels (e.g. you already saturate cores with concurrent requests)? Use `ctx.withSchedule(Schedule.Sequential) { ... }` or construct `DirectCpuExecutionContext(schedule = Schedule.Sequential)`.
+6. **TurboQuant is opt-in.** Apply it to the KV cache via `KvCacheStore.turboQuant(...)` / `TensorEncoding.TurboQuantPolar` — don't blanket-encode everything. The quantisation rounds and the choice of bits (2/3/4/8) is a quality/size trade-off the consumer must make consciously.
+7. **Don't read intermediate activations through reflection.** Use `ForwardHooks` (passed via `_hooks` to the `ExecutionContext` constructor) when you need to observe module inputs/outputs.
 
 ## Workflow
 
@@ -67,13 +68,13 @@ val x = tensor<FP32, Float>(ctx, FP32::class) {
 
 val y = model.forward(x, ctx)
 // y.shape == Shape(1, 10)
-// from: SKaiNET/skainet-lang/skainet-lang-core/src/commonTest/kotlin/sk/ainet/readme/ReadmeSnippetsTest.kt:36-56
+// adapted from: SKaiNET/skainet-lang/skainet-lang-core/src/commonTest/kotlin/sk/ainet/readme/ReadmeSnippetsTest.kt
 ```
 
 **Real-world consumer pattern (image-in / tensor-out, with progress):**
 
 ```kotlin
-val ctx: ExecutionContext = modelInstance.executionContext     // DirectCpuExecutionContext.create()
+val ctx: ExecutionContext = modelInstance.executionContext     // a DirectCpuExecutionContext
 val module = modelInstance.model.create(ctx)
 val inputTensor = imageLoader.imageToTensor(image, ctx)
 
@@ -126,14 +127,42 @@ suspend fun classify(image: Tensor<FP32, Float>, model: Module<FP32, Float>, ctx
 
 `Dispatchers.Default` is the right pool for CPU-bound work; `Dispatchers.IO` is sized for IO-blocking calls. Do NOT call `forward` from `Dispatchers.Main` (Android UI / UI-thread executors).
 
+**Controlling intra-op threading — the `Schedule` API (0.54.0+):**
+
+```kotlin
+import sk.ainet.context.DirectCpuExecutionContext
+import sk.ainet.context.schedule.Schedule
+import sk.ainet.context.withSchedule
+import sk.ainet.exec.schedule.CoroutineSchedule   // JVM only (skainet-backend-cpu jvmMain)
+
+val ctx = DirectCpuExecutionContext()             // JVM default: CoroutineSchedule.hardware()
+println(ctx.schedule.name)                        // e.g. "coroutines(12)"; Android/native/JS: "sequential"
+
+// Force single-threaded kernels for one block of work:
+val out = ctx.withSchedule(Schedule.Sequential) { seq ->
+    model.forward(x, seq)
+}
+
+// Or pin a worker count (JVM):
+val two = ctx.withSchedule(CoroutineSchedule(parallelism = 2)) { par -> model.forward(x, par) }
+// Results are bit-identical across schedules — only the thread mapping changes.
+// from: SKaiNET/docs/modules/ROOT/examples/kotlin/sk/ainet/docs/samples/ScheduleDemo.kt
+```
+
 **TurboQuant for a KV cache:**
 
 ```kotlin
-import sk.ainet.lang.tensor.encoding.TensorEncoding
+import sk.ainet.lang.tensor.storage.KvCacheStore
+import sk.ainet.lang.tensor.storage.TensorEncoding
 
+// One-line preset factory ("safe-lowbit", "balanced", "experimental-max"):
+val cache = KvCacheStore.turboQuant(
+    preset = "balanced", numLayers = 32, numHeads = 32, headDim = 128, maxSeqLen = 4096
+)
+
+// Or per-tensor encodings for a custom KvCacheConfig:
 val keyEncoding = TensorEncoding.TurboQuantPolar(bitsPerElement = 4, blockSize = 128)
 val valueEncoding = TensorEncoding.TurboQuantPolar(bitsPerElement = 4, blockSize = 128)
-// Plug encodings into your KV-cache implementation.
 ```
 
 ```kotlin
@@ -141,8 +170,8 @@ import sk.ainet.lang.tensor.ops.turboquant.TurboQuantCodec
 import sk.ainet.lang.tensor.ops.turboquant.TurboQuantConfig
 
 val config = TurboQuantConfig.polarPlusQjl(bits = 4, residualBits = 1, seed = 42)
-val encoded = TurboQuantCodec.encode(rawFloats, config)
-val decoded = TurboQuantCodec.decode(encoded)
+val encoded = TurboQuantCodec.encode(rawFloats, config)   // TurboQuantBlock
+val decoded = TurboQuantCodec.decode(encoded)             // FloatArray
 // from: SKaiNET/skainet-lang/skainet-lang-core/src/commonMain/kotlin/sk/ainet/lang/tensor/ops/turboquant/TurboQuantCodec.kt
 ```
 
@@ -211,6 +240,6 @@ val outs = model.forward(batched, ctx)         // single forward call
 
 ## References
 
-- [`references/execution-context.md`](references/execution-context.md) — `ExecutionContext` factories, `Phase`, hooks, stats, and the lifetime contract.
+- [`references/execution-context.md`](references/execution-context.md) — `ExecutionContext` factories, `Phase`, the `Schedule` API, hooks, stats, and the lifetime contract.
 - [`references/forward-pass.md`](references/forward-pass.md) — `Module.forward(x, ctx)`, batching, output shape rules, when to convert to primitive arrays.
-- [`references/turboquant.md`](references/turboquant.md) — `TurboQuantPolar`, `TurboQuantPolarQjl`, `TurboQuantConfig`, `TurboQuantCodec` with the bit/quality trade-off.
+- [`references/turboquant.md`](references/turboquant.md) — `TurboQuantPolar`, `TurboQuantPolarQjl`, `TurboQuantConfig`, `TurboQuantCodec`, KV-cache stores and presets, with the bit/quality trade-off.

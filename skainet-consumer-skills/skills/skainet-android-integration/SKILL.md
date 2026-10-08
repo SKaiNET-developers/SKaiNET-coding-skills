@@ -26,18 +26,20 @@ Android-specific concerns for SKaiNET consumers: how to load model files from `a
 ## Hard rules
 
 1. **`minSdk` = 24.** SKaiNET's Android target is built for `minSdk = 24`, `compileSdk = 36`. Lower is unsupported; higher is fine.
-2. **Ship ARM64 at minimum; ARM32 only if you must.** The CPU backend has NEON paths for both, but ARM64 is the primary target. Do not ship x86 / x86_64 unless you specifically support emulator-only builds — production devices are ARM. Configure `ndk.abiFilters` accordingly to keep APK size down.
-3. **Never call `forward(...)` on the main thread.** Use `viewModelScope.launch { withContext(Dispatchers.Default) { ... } }` from a `ViewModel`, or `lifecycleScope.launch { ... }` from an `Activity`/`Fragment`. The CPU backend can take hundreds of ms to seconds; the main thread has a 16 ms budget.
-4. **Open assets with `context.assets.open(name)`. Don't decode the path as a `File` — there is no path inside the APK.** Use a `RandomAccessSource` factory that wraps the `InputStream` if the loader needs random access (some loaders do; SafeTensors and GGUF need random access — read the asset to a cache file in `context.cacheDir` and load from there if random access is required).
-5. **Hold one `ExecutionContext` and one `Module` on the `Application` object** (or in a DI scope spanning the app lifetime). They're heavyweight; per-Activity construction is wasteful.
-6. **React to `onTrimMemory(level)`.** When `level >= TRIM_MEMORY_BACKGROUND`, drop the `Module` (and any cached tensors); rebuild on next access. Holding multi-GB models across a backgrounded app is a sure path to LMK kills.
-7. **Cache the model file once.** If the asset is a multi-GB GGUF that must be unpacked from the APK, copy it to `context.filesDir` (or `context.cacheDir`) on first launch and load from there subsequently. Loading from `assets/` repeatedly extracts on every cold start.
+2. **Ship ARM64 at minimum; ARM32 only if you must.** ARM64 is the primary target. Do not ship x86 / x86_64 unless you specifically support emulator-only builds — production devices are ARM. Configure `ndk.abiFilters` accordingly to keep APK size down.
+3. **Add `skainet-backend-jni-cpu` for real speed.** ART has no `java.lang.foreign`, so the JVM's FFM kernel provider can never run on Android; without the JNI AAR, inference runs on the scalar reference floor. The AAR ships NDK-built kernel `.so`s (`arm64-v8a` + `x86_64`, 16 KB-page-aligned for Android 15+; two NEON tiers selected at load time from `/proc/cpuinfo`) and a `JniKernelProvider` that the Android ops factory discovers via `ServiceLoader` automatically — no bootstrap call. Consumer R8 rules keeping the ServiceLoader entry are shipped in the AAR.
+4. **Never call `forward(...)` on the main thread.** Use `viewModelScope.launch { withContext(Dispatchers.Default) { ... } }` from a `ViewModel`, or `lifecycleScope.launch { ... }` from an `Activity`/`Fragment`. The CPU backend can take hundreds of ms to seconds; the main thread has a 16 ms budget.
+5. **Open assets with `context.assets.open(name)`. Don't decode the path as a `File` — there is no path inside the APK.** SafeTensors and GGUF loaders need random access: copy the asset to a real file in `context.cacheDir` / `context.filesDir` once, then open it with `openRandomAccessSource(path)` or `AndroidGguf.loader(path)`.
+6. **Prefer mapped weights for GGUF.** The ART heap is hard-capped (256 MB, 512 MB with `largeHeap`) no matter the device RAM. `AndroidGguf.loader(path)` defaults to `WeightForm(residency = WeightResidency.MAPPED)`: weights are served from file-backed pages the OS pages in on demand and evicts under pressure — they never count against the heap cap. Check fit *before* loading with `AndroidGguf.plan(path, ctx)` + `AndroidGguf.deviceMemory(context)`.
+7. **Hold one `ExecutionContext` and one `Module` on the `Application` object** (or in a DI scope spanning the app lifetime). They're heavyweight; per-Activity construction is wasteful.
+8. **React to `onTrimMemory(level)`.** When `level >= TRIM_MEMORY_BACKGROUND`, drop the `Module` (and any cached tensors / KV cache); rebuild on next access. Mapped weight pages are evictable by the OS on their own, but heap-staged tensors are not.
+9. **Cache the model file once.** If the asset is a multi-GB GGUF that must be unpacked from the APK, copy it to `context.filesDir` (or `context.cacheDir`) on first launch and load from there subsequently. Loading from `assets/` repeatedly extracts on every cold start — and mmap needs a real file anyway.
 
 ## Workflow
 
-1. Add the SKaiNET BOM + `skainet-lang-core` + `skainet-backend-cpu` (see `skainet-consumer-setup`). For loaders, add `skainet-io-core` + the format-specific artifact.
+1. Add the SKaiNET BOM + `skainet-lang-core` + `skainet-backend-cpu` + `skainet-backend-jni-cpu` (NEON kernels; see `skainet-consumer-setup`). For loaders, add `skainet-io-core` + the format-specific artifact.
 2. Pick where to host the `ExecutionContext` and `Module` — usually a singleton tied to `Application` lifetime, or a Hilt/Koin app-scope binding.
-3. Load the model file (asset, downloaded cache, or remote): see Canonical examples.
+3. Load the model file (asset, downloaded cache, or remote): see Canonical examples. For GGUF, run the header-only fit check first (`AndroidGguf.plan` / `fitOn`).
 4. Wire the forward pass through a coroutine on `Dispatchers.Default`.
 5. Handle `onTrimMemory` to release the `Module` under pressure.
 6. Test on a real ARM64 device — emulators don't surface ABI / NEON issues.
@@ -74,6 +76,9 @@ class SkainetApp : Application() {
 **Loading a GGUF from assets via cacheDir (random-access loaders need a real file):**
 
 ```kotlin
+import sk.ainet.io.gguf.AndroidGguf
+import sk.ainet.lang.types.FP32
+
 private suspend fun copyAssetIfNeeded(context: Context, name: String): java.io.File =
     withContext(Dispatchers.IO) {
         val target = java.io.File(context.cacheDir, name)
@@ -85,11 +90,17 @@ private suspend fun copyAssetIfNeeded(context: Context, name: String): java.io.F
         target
     }
 
-private suspend fun loadGGUF(context: Context): GGUFModelReader = withContext(Dispatchers.IO) {
+private suspend fun loadGguf(context: Context, ctx: ExecutionContext) = withContext(Dispatchers.IO) {
     val file = copyAssetIfNeeded(context, "model-q4.gguf")
-    GGUFModelReader(/* RandomAccessSource factory wrapping `file` */)
+    // Mapped residency by default: tensor payloads come from mmap'd pages, not the ART heap.
+    val loader = AndroidGguf.loader(file.absolutePath)
+    loader.load(ctx, FP32::class) { name, tensor ->
+        // bind 'name' -> 'tensor' into your Module's parameters
+    }
 }
 ```
+
+`AndroidGguf` (in `skainet-io-gguf`, androidMain) also offers the pre-load fit check: `AndroidGguf.plan(path, ctx)` prices the model from the GGUF header alone (a few KB of reads), and `AndroidGguf.deviceMemory(context)` reports RAM + the ART heap cap — combine with `fitOn` to refuse a model *before* the OOM kill.
 
 **Inference in a ViewModel:**
 
@@ -120,14 +131,20 @@ class ClassifyViewModel(
 **Asset-resident SafeTensors via cache-first pattern (same idea as GGUF):**
 
 ```kotlin
+import sk.ainet.io.openRandomAccessSource
+import sk.ainet.io.weights.WeightMapper
+import sk.ainet.io.weights.WeightTensor
+
 suspend fun loadSafeTensors(context: Context, ctx: ExecutionContext, module: Module<FP32, Float>) {
     val file = copyAssetIfNeeded(context, "weights.safetensors")
     val loader = SafeTensorsParametersLoader(
-        sourceProvider = { JvmFileRandomAccessSource(file) }
+        sourceProvider = { openRandomAccessSource(file.absolutePath)!! }
     )
+    val loaded = mutableListOf<WeightTensor<FP32, Float>>()
     loader.load(ctx, FP32::class) { name, tensor ->
-        module.setParameter(name, tensor)
+        loaded += WeightTensor(name, tensor.shape.dimensions.toList(), tensor)
     }
+    WeightMapper.applyWeights(module, loaded)   // name-based binding into the Module tree
 }
 ```
 
@@ -151,6 +168,7 @@ dependencies {
     implementation(platform(libs.skainet.bom))
     implementation(libs.skainet.lang.core)
     implementation(libs.skainet.backend.cpu)
+    implementation(libs.skainet.backend.jni.cpu)   // AAR: NEON kernels via JNI; ServiceLoader auto-discovery
     implementation(libs.skainet.io.core)
     implementation(libs.skainet.io.gguf)
 }
@@ -182,12 +200,12 @@ val ctx = app.executionContext()
 
 ```kotlin
 // WRONG — assets opened as a File path (path doesn't exist inside the APK)
-val reader = GGUFModelReader(JvmFileRandomAccessSource(File("file:///android_asset/model.gguf")))
+val loader = AndroidGguf.loader("file:///android_asset/model.gguf")
 ```
 ```kotlin
-// RIGHT — copy to cacheDir, load from there
+// RIGHT — copy to cacheDir, load from there (mapped weights need a real file)
 val file = copyAssetIfNeeded(context, "model.gguf")
-val reader = GGUFModelReader(/* source factory wrapping `file` */)
+val loader = AndroidGguf.loader(file.absolutePath)
 ```
 
 ```kotlin
